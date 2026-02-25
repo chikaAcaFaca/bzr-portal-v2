@@ -11,6 +11,10 @@ import { createContext } from './api/trpc/context';
 import { db } from './db';
 import { contactFormSubmissions } from './db/schema';
 import { sendContactFormEmail } from './services/email.service';
+import { initFirebaseAdmin } from './lib/firebase-admin';
+
+// Initialize Firebase Admin SDK
+initFirebaseAdmin();
 
 /**
  * BZR Portal Backend Server
@@ -149,6 +153,14 @@ import('./routes/document-upload').then((module) => {
   console.log('✅ Document upload routes enabled');
 }).catch((error) => {
   console.error('⚠️  Document upload routes failed to load:', error);
+});
+
+// Paddle webhook routes
+import('./api/routes/paddle-webhook').then((module) => {
+  app.route('/api/paddle', module.default);
+  console.log('✅ Paddle webhook routes enabled');
+}).catch((error) => {
+  console.error('⚠️  Paddle webhook routes failed to load:', error);
 });
 
 // AI Chat routes (only if AI providers are configured)

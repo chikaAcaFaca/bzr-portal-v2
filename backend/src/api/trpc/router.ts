@@ -12,9 +12,13 @@ import { positionsRouter } from '../routes/positions';
 import { workersRouter } from '../routes/workers';
 import { risksRouter } from '../routes/risks';
 import { documentsRouter } from '../routes/documents';
+import { hazardsRouter } from '../routes/hazards';
+import { agenciesRouter } from '../routes/agencies';
+import { companyDirectoryRouter } from '../routes/company-directory';
+import { messagingRouter } from '../routes/messaging';
 
 // Re-export builder functions for convenience
-export { router, publicProcedure, protectedProcedure } from './builder';
+export { router, publicProcedure, protectedProcedure, companyOwnerProcedure } from './builder';
 
 /**
  * App Router
@@ -37,6 +41,12 @@ export const appRouter = router({
   workers: workersRouter,
   risks: risksRouter,
   documents: documentsRouter,
+  hazards: hazardsRouter,
+  agencies: agenciesRouter,
+
+  // Phase 2: Marketplace & Lead Generation
+  companyDirectory: companyDirectoryRouter,
+  messaging: messagingRouter,
 });
 
 export type AppRouter = typeof appRouter;

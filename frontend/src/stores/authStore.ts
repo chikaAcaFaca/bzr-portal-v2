@@ -1,20 +1,61 @@
 /**
- * Auth Store (T038)
+ * Auth Store - Firebase Auth + Zustand
  *
- * Zustand store for authentication state with persist middleware.
- * Manages JWT tokens, user data, company_id, role, and trial status.
+ * Manages authentication state using Firebase Auth.
+ * Firebase handles token management; Zustand stores agency/user profile data.
  */
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import {
+  loginWithEmail,
+  registerWithEmail,
+  loginWithGoogle,
+  logout as firebaseLogout,
+  onAuthChange,
+  getIdToken,
+  type FirebaseUser,
+} from '../lib/firebase';
 
 // =============================================================================
 // Types
 // =============================================================================
 
+export type AgencyUserRole = 'owner' | 'agent';
+
+export interface AgencyUserProfile {
+  agencyUserId: number;
+  agencyId: number;
+  email: string;
+  fullName: string;
+  role: AgencyUserRole;
+  agencyName: string;
+}
+
+export interface AuthState {
+  // State
+  firebaseUser: FirebaseUser | null;
+  profile: AgencyUserProfile | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  error: string | null;
+
+  // Actions
+  loginEmail: (email: string, password: string) => Promise<void>;
+  registerEmail: (email: string, password: string) => Promise<void>;
+  loginGoogle: () => Promise<void>;
+  logout: () => Promise<void>;
+  setProfile: (profile: AgencyUserProfile) => void;
+  setLoading: (loading: boolean) => void;
+  setError: (error: string | null) => void;
+
+  // Token helper (for API calls)
+  getAccessToken: () => Promise<string | null>;
+}
+
+// Legacy exports for backward compatibility
 export type AccountTier = 'trial' | 'verified' | 'premium';
 export type UserRole = 'admin' | 'bzr_officer' | 'hr_manager' | 'viewer';
-
 export interface User {
   userId: number;
   email: string;
@@ -22,34 +63,9 @@ export interface User {
   companyId: number | null;
   firstName?: string;
   lastName?: string;
-
-  // Trial Account Support (FR-028)
   accountTier: AccountTier;
-  trialExpiryDate?: string | null; // ISO date string
+  trialExpiryDate?: string | null;
   emailVerified: boolean;
-}
-
-export interface TrialStatus {
-  isTrial: boolean;
-  daysRemaining: number | null;
-  expired: boolean;
-}
-
-export interface AuthState {
-  // State
-  user: User | null;
-  accessToken: string | null;
-  refreshToken: string | null;
-  isAuthenticated: boolean;
-
-  // Actions
-  login: (accessToken: string, refreshToken: string, user: User) => void;
-  logout: () => void;
-  updateUser: (user: Partial<User>) => void;
-  updateAccessToken: (accessToken: string) => void;
-
-  // Computed getters
-  getTrialStatus: () => TrialStatus;
 }
 
 // =============================================================================
@@ -60,84 +76,127 @@ export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
       // Initial state
-      user: null,
-      accessToken: null,
-      refreshToken: null,
+      firebaseUser: null,
+      profile: null,
       isAuthenticated: false,
+      isLoading: true, // True initially while checking Firebase auth state
+      error: null,
 
-      // Login action
-      login: (accessToken, refreshToken, user) =>
-        set({
-          accessToken,
-          refreshToken,
-          user,
-          isAuthenticated: true,
-        }),
+      // Login with email/password
+      loginEmail: async (email: string, password: string) => {
+        set({ isLoading: true, error: null });
+        try {
+          await loginWithEmail(email, password);
+          // Firebase onAuthStateChanged will handle setting user
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Greška pri prijavljivanju';
+          set({ error: message, isLoading: false });
+          throw err;
+        }
+      },
 
-      // Logout action
-      logout: () =>
+      // Register with email/password
+      registerEmail: async (email: string, password: string) => {
+        set({ isLoading: true, error: null });
+        try {
+          await registerWithEmail(email, password);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Greška pri registraciji';
+          set({ error: message, isLoading: false });
+          throw err;
+        }
+      },
+
+      // Login with Google
+      loginGoogle: async () => {
+        set({ isLoading: true, error: null });
+        try {
+          await loginWithGoogle();
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Greška pri Google prijavljivanju';
+          set({ error: message, isLoading: false });
+          throw err;
+        }
+      },
+
+      // Logout
+      logout: async () => {
+        try {
+          await firebaseLogout();
+        } catch {
+          // Ignore logout errors
+        }
         set({
-          accessToken: null,
-          refreshToken: null,
-          user: null,
+          firebaseUser: null,
+          profile: null,
           isAuthenticated: false,
-        }),
+          isLoading: false,
+          error: null,
+        });
+      },
 
-      // Update user data
-      updateUser: (userData) =>
-        set((state) => ({
-          user: state.user ? { ...state.user, ...userData } : null,
-        })),
-
-      // Update access token (after refresh)
-      updateAccessToken: (accessToken) =>
+      // Set agency user profile (loaded from backend after auth)
+      setProfile: (profile) =>
         set({
-          accessToken,
+          profile,
+          isAuthenticated: true,
+          isLoading: false,
         }),
 
-      // Get trial status (computed)
-      getTrialStatus: () => {
-        const { user } = get();
+      setLoading: (loading) => set({ isLoading: loading }),
+      setError: (error) => set({ error }),
 
-        if (!user || user.accountTier !== 'trial') {
-          return { isTrial: false, daysRemaining: null, expired: false };
-        }
-
-        if (!user.trialExpiryDate) {
-          return { isTrial: true, daysRemaining: null, expired: false };
-        }
-
-        const now = new Date();
-        const expiryDate = new Date(user.trialExpiryDate);
-        const msRemaining = expiryDate.getTime() - now.getTime();
-        const daysRemaining = Math.ceil(msRemaining / (1000 * 60 * 60 * 24));
-
-        return {
-          isTrial: true,
-          daysRemaining: Math.max(0, daysRemaining),
-          expired: daysRemaining <= 0,
-        };
+      // Get Firebase ID token for API requests
+      getAccessToken: async () => {
+        return getIdToken();
       },
     }),
     {
-      name: 'bzr-auth-storage', // localStorage key
+      name: 'bzr-auth-storage',
       partialize: (state) => ({
-        // Only persist these fields
-        user: state.user,
-        refreshToken: state.refreshToken,
-        // Do NOT persist accessToken (expires in 15min)
+        profile: state.profile,
       }),
     }
   )
 );
 
 // =============================================================================
-// Selectors (for performance)
+// Firebase Auth State Listener
 // =============================================================================
 
-export const selectUser = (state: AuthState) => state.user;
+/**
+ * Initialize Firebase auth state listener.
+ * Call this once at app startup (e.g., in App.tsx or main.tsx).
+ */
+export function initAuthListener() {
+  return onAuthChange(async (firebaseUser) => {
+    if (firebaseUser) {
+      useAuthStore.setState({
+        firebaseUser,
+        isAuthenticated: true,
+        isLoading: false,
+      });
+    } else {
+      useAuthStore.setState({
+        firebaseUser: null,
+        profile: null,
+        isAuthenticated: false,
+        isLoading: false,
+      });
+    }
+  });
+}
+
+// =============================================================================
+// Legacy selectors (backward compatibility)
+// =============================================================================
+
+export const selectUser = (state: AuthState) => state.profile;
 export const selectIsAuthenticated = (state: AuthState) => state.isAuthenticated;
-export const selectAccessToken = (state: AuthState) => state.accessToken;
-export const selectUserRole = (state: AuthState) => state.user?.role;
-export const selectCompanyId = (state: AuthState) => state.user?.companyId;
-export const selectTrialStatus = (state: AuthState) => state.getTrialStatus();
+export const selectAccessToken = () => getIdToken(); // Returns Promise
+export const selectUserRole = (state: AuthState) => state.profile?.role;
+
+// Legacy accessToken getter for components that use useAuthStore.getState().accessToken
+Object.defineProperty(useAuthStore.getState(), 'accessToken', {
+  get: () => null, // Sync access not possible with Firebase - use getAccessToken() instead
+});

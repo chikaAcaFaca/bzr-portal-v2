@@ -1,4 +1,12 @@
 // Export all schemas for Drizzle ORM
+
+// Multi-tenant: Agencies & Billing
+export * from './agencies';
+export * from './agency-users';
+export * from './subscriptions';
+export * from './paddle-events';
+
+// Core business data
 export * from './hazards';
 export * from './companies';
 export * from './work-positions';
@@ -8,7 +16,7 @@ export * from './ppe';
 export * from './training';
 export * from './medical-exams';
 
-// Authentication schemas (Phase 2.5)
+// Authentication schemas (Phase 2.5 - migrating to Firebase Auth)
 export * from './users';
 export * from './sessions';
 export * from './email-verification-tokens';
@@ -25,3 +33,11 @@ export * from './conversations';
 
 // Document Upload & AI Extraction
 export * from './uploaded-documents';
+
+// Knowledge Base: Regulations & News
+export * from './regulations';
+export * from './news';
+
+// Phase 2: Marketplace & Lead Generation
+export * from './company-directory';
+export * from './messages';

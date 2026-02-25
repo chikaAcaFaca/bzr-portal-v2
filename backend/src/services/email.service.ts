@@ -348,6 +348,63 @@ ${data.message}
   return sendEmail({ to, subject, html, replyTo: data.email });
 }
 
+/**
+ * Send message notification email (Serbian Cyrillic)
+ *
+ * Notifies a user when they receive a new in-app message.
+ */
+export async function sendMessageNotificationEmail(
+  to: string,
+  data: {
+    recipientName: string;
+    senderName: string;
+    subject: string;
+    messagePreview: string;
+    threadUrl: string;
+  }
+): Promise<string> {
+  const subject = `Нова порука од ${data.senderName} - BZR Savetnik`;
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="sr-Cyrl">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Нова порука</title>
+    </head>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <h1 style="color: #107C10;">Нова порука</h1>
+
+      <p>Здраво ${data.recipientName},</p>
+
+      <p><strong>${data.senderName}</strong> вам је послао/ла нову поруку:</p>
+
+      <div style="background-color: #f4f4f4; border-left: 4px solid #107C10; padding: 15px; margin: 20px 0; border-radius: 4px;">
+        <p style="margin: 0 0 5px 0; font-weight: bold;">${data.subject}</p>
+        <p style="margin: 0; color: #555;">${data.messagePreview}</p>
+      </div>
+
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="${data.threadUrl}"
+           style="background-color: #107C10; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
+          Погледај поруку
+        </a>
+      </div>
+
+      <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+
+      <p style="color: #999; font-size: 12px;">
+        Ову поруку сте примили јер имате налог на BZR Savetnik платформи.
+        Можете управљати подешавањима обавештења у свом налогу.
+      </p>
+    </body>
+    </html>
+  `;
+
+  return sendEmail({ to, subject, html });
+}
+
 export const emailService = {
   sendEmail,
   sendVerificationEmail,
@@ -355,4 +412,5 @@ export const emailService = {
   sendTrialExpiryEmail,
   sendDocumentReadyEmail,
   sendContactFormEmail,
+  sendMessageNotificationEmail,
 };

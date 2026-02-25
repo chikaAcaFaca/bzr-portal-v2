@@ -1,16 +1,23 @@
 import { pgTable, serial, varchar, text, timestamp, boolean, integer } from 'drizzle-orm/pg-core';
 import { accountTierEnum } from './users';
+import { agencies } from './agencies';
+import { agencyUsers } from './agency-users';
+import { pricingTierEnum, billingCycleEnum } from './subscriptions';
 
 /**
- * Companies Table (Phase 2: T013)
+ * Companies Table
  *
- * Stores employer (poslodavac) information for BZR Act documents.
- * Maps to FR-001 requirements in spec.md.
- * Trial limits: 1 company, 3 positions, 5 documents per FR-028b.
+ * Client companies (klijenti) managed by BZR agencies.
+ * Each company belongs to an agency and is assigned to an agent.
+ * Pricing is based on employee count (1,990 - 19,990 RSD/month).
  */
 export const companies = pgTable('companies', {
   id: serial('id').primaryKey(),
-  userId: integer('user_id').notNull(), // Foreign key to users.id (for row-level security)
+  userId: integer('user_id'), // Legacy: old user-based ownership (nullable for migration)
+
+  // Multi-tenant: Agency relationship
+  agencyId: integer('agency_id').references(() => agencies.id), // Which agency manages this client
+  assignedAgentId: integer('assigned_agent_id').references(() => agencyUsers.id), // Which agent is responsible
 
   // Company identification (FR-001)
   name: varchar('name', { length: 255 }).notNull(),
@@ -32,18 +39,36 @@ export const companies = pgTable('companies', {
   bzrResponsiblePerson: varchar('bzr_responsible_person', { length: 255 }).notNull(),
   bzrResponsibleJmbg: varchar('bzr_responsible_jmbg', { length: 255 }), // Encrypted JMBG
 
-  // Additional info
-  employeeCount: varchar('employee_count', { length: 10 }),
+  // Employee count and pricing
+  employeeCount: integer('employee_count').default(0), // Actual number of employees
   organizationChart: text('organization_chart'), // URL or file path
 
-  // Trial Account Limits (FR-028b)
+  // Paddle billing (per-client subscription)
+  pricingTier: pricingTierEnum('pricing_tier'), // Determined by employeeCount
+  billingCycle: billingCycleEnum('billing_cycle').default('monthly'),
+  paddleSubscriptionId: varchar('paddle_subscription_id', { length: 100 }),
+
+  // Legacy trial fields (kept for backward compatibility during migration)
   accountTier: accountTierEnum('account_tier').default('trial').notNull(),
-  trialExpiryDate: timestamp('trial_expiry_date'), // 14 days from registration
-  documentGenerationCount: integer('document_generation_count').default(0).notNull(), // Max 5 for trial
-  workPositionCount: integer('work_position_count').default(0).notNull(), // Max 3 for trial
+  trialExpiryDate: timestamp('trial_expiry_date'),
+  documentGenerationCount: integer('document_generation_count').default(0).notNull(),
+  workPositionCount: integer('work_position_count').default(0).notNull(),
+
+  // Self-registration: Company owner (B2B2C marketplace)
+  firebaseUid: varchar('firebase_uid', { length: 128 }).unique(),
+  ownerEmail: varchar('owner_email', { length: 255 }),
+  ownerFullName: varchar('owner_full_name', { length: 255 }),
+
+  // Marketplace: Agency connection
+  connectedAgencyId: integer('connected_agency_id').references(() => agencies.id),
+  connectionStatus: varchar('connection_status', { length: 20 }).default('none'), // none/pending/connected/disconnected
+
+  // IPS payment tracking
+  subscriptionPaidUntil: timestamp('subscription_paid_until'),
+  lastPaymentAt: timestamp('last_payment_at'),
 
   // Audit fields
-  isDeleted: boolean('is_deleted').default(false).notNull(), // Soft delete (FR-015)
+  isDeleted: boolean('is_deleted').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),

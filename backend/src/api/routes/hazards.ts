@@ -5,7 +5,7 @@
  * Reference data (read-only, seeded from database).
  */
 
-import { router, publicProcedure } from '../trpc/router';
+import { router, publicProcedure } from '../trpc/builder';
 import { db } from '../../db';
 import { hazardTypes } from '../../db/schema/hazards';
 import { z } from 'zod';

@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Upload, FileText, AlertCircle, Loader2 } from 'lucide-react';
+import { Plus, Upload, FileText, AlertCircle, Loader2, Download } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Alert, AlertDescription } from '../components/ui/alert';
@@ -22,6 +22,26 @@ export function PositionsListPage() {
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'processing' | 'success' | 'error'>('idle');
   const [uploadMessage, setUploadMessage] = useState('');
   const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(null);
+  const [generatingId, setGeneratingId] = useState<number | null>(null);
+
+  // Document generation mutation
+  const generateDocMutation = trpc.documents.generate.useMutation({
+    onSuccess: (data) => {
+      setGeneratingId(null);
+      window.open(data.url, '_blank');
+    },
+    onError: (err) => {
+      setGeneratingId(null);
+      setUploadStatus('error');
+      setUploadMessage(err.message);
+    },
+  });
+
+  const handleGenerateDocument = (positionId: number) => {
+    setGeneratingId(positionId);
+    setUploadStatus('idle');
+    generateDocMutation.mutate({ positionId });
+  };
 
   // Fetch user's companies
   const { data: companies, isLoading: companiesLoading } = trpc.companies.list.useQuery();
@@ -34,7 +54,7 @@ export function PositionsListPage() {
 
   // Set default company when companies load
   if (companies && companies.length > 0 && selectedCompanyId === null) {
-    setSelectedCompanyId(companies[0].id);
+    setSelectedCompanyId(companies[0]!.id);
   }
 
   const handleManualCreate = () => {
@@ -314,16 +334,31 @@ export function PositionsListPage() {
                           <p className="text-sm text-muted-foreground">{position.department}</p>
                         )}
                         <p className="text-xs text-muted-foreground mt-1">
-                          {position.maleCount + position.femaleCount} запослених
+                          {(position.maleCount ?? 0) + (position.femaleCount ?? 0)} запослених
                         </p>
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => navigate(`/app/positions/${position.id}`)}
-                      >
-                        Детаљи
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleGenerateDocument(position.id)}
+                          disabled={generatingId === position.id}
+                        >
+                          {generatingId === position.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                          ) : (
+                            <Download className="h-4 w-4 mr-1" />
+                          )}
+                          Генериши документ
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => navigate(`/app/positions/${position.id}`)}
+                        >
+                          Детаљи
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>

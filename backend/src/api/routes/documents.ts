@@ -109,7 +109,7 @@ export const documentsRouter = router({
 
       if (user && user.accountTier === 'trial') {
         throw new TRPCError({
-          code: 'PAYMENT_REQUIRED',
+          code: 'FORBIDDEN',
           message: 'Демо период не дозвољава преузимање докумената. Претплатите се да бисте преузели генерисане документе. Email: info@bzr-portal.com',
         });
       }

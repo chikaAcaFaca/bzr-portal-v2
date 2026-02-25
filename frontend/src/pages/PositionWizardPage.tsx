@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Check } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Progress } from '../components/ui/progress';
@@ -11,9 +11,8 @@ import { PositionBasicInfoForm } from '../components/positions/PositionBasicInfo
 import { PositionWorkersForm } from '../components/positions/PositionWorkersForm';
 import { RiskAssessmentWizard } from '../components/risk-assessment/RiskAssessmentWizard';
 import { trpc } from '../services/api';
-import { useAuthStore } from '../stores/authStore';
 import { Alert, AlertDescription } from '../components/ui/alert';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Loader2 } from 'lucide-react';
 
 /**
  * PositionWizardPage Component (T113)
@@ -21,23 +20,10 @@ import { AlertCircle } from 'lucide-react';
  * Multi-step wizard for creating new workplace positions with risk assessments.
  * Guides users through position setup, worker assignment, and risk evaluation.
  *
- * Features:
- * - 3-step wizard: Basic Info → Workers → Risk Assessment
- * - Progress indicator
- * - Form validation at each step
- * - Save draft functionality
- * - Serbian Cyrillic UI
- *
  * Steps:
  * 1. Basic Info: Position name, description, workplace type
  * 2. Workers: Assign workers to position (name, JMBG, gender, DOB)
  * 3. Risk Assessment: Identify hazards and assess risks
- *
- * Usage:
- *   Route: /dashboard/positions/new
- *   Requires authentication + company membership
- *
- * Requirements: FR-014 (Position wizard), FR-019 (Risk assessment)
  */
 
 type WizardStep = 'basic-info' | 'workers' | 'risk-assessment';
@@ -51,17 +37,6 @@ interface PositionDraft {
     jmbg: string;
     gender: 'M' | 'F';
     dateOfBirth: string;
-  }>;
-  risks?: Array<{
-    hazardCode: string;
-    hazardName: string;
-    initialE: number;
-    initialP: number;
-    initialF: number;
-    correctiveMeasures: string;
-    residualE: number;
-    residualP: number;
-    residualF: number;
   }>;
 }
 
@@ -92,7 +67,7 @@ export function PositionWizardPage() {
   const [currentStep, setCurrentStep] = useState<WizardStep>('basic-info');
   const [positionDraft, setPositionDraft] = useState<PositionDraft>({});
   const [error, setError] = useState('');
-  const [createdPositionId, setCreatedPositionId] = useState<number | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Get user's companies to determine company ID
   const { data: companies } = trpc.companies.list.useQuery();
@@ -101,6 +76,7 @@ export function PositionWizardPage() {
   // tRPC mutations
   const createWorkersMutation = trpc.workers.createMany.useMutation();
   const createPositionMutation = trpc.positions.create.useMutation();
+  const createRiskMutation = trpc.risks.create.useMutation();
 
   const currentStepIndex = STEPS.findIndex((step) => step.id === currentStep);
   const progress = ((currentStepIndex + 1) / STEPS.length) * 100;
@@ -108,16 +84,16 @@ export function PositionWizardPage() {
   const handleNext = () => {
     const nextIndex = currentStepIndex + 1;
     if (nextIndex < STEPS.length) {
-      setCurrentStep(STEPS[nextIndex].id);
+      setCurrentStep(STEPS[nextIndex]!.id);
     }
   };
 
   const handleBack = () => {
     const prevIndex = currentStepIndex - 1;
     if (prevIndex >= 0) {
-      setCurrentStep(STEPS[prevIndex].id);
+      setCurrentStep(STEPS[prevIndex]!.id);
     } else {
-      navigate('/dashboard/positions');
+      navigate('/app/positions');
     }
   };
 
@@ -155,7 +131,7 @@ export function PositionWizardPage() {
       // Save workers to database immediately
       await createWorkersMutation.mutateAsync({
         companyId,
-        positionId: createdPositionId, // Will be null for now, we'll assign later if needed
+        positionId: null,
         workers: data.workers,
       });
 
@@ -170,8 +146,9 @@ export function PositionWizardPage() {
     }
   };
 
-  const handleRiskAssessmentComplete = (data: {
+  const handleRiskAssessmentComplete = async (data: {
     risks: Array<{
+      hazardId: number;
       hazardCode: string;
       hazardName: string;
       initialE: number;
@@ -183,21 +160,60 @@ export function PositionWizardPage() {
       residualF: number;
     }>;
   }) => {
-    setPositionDraft((prev) => ({
-      ...prev,
-      ...data,
-    }));
+    if (!companyId) {
+      setError('Морате прво креирати предузеће.');
+      return;
+    }
 
-    // Complete wizard - save position with risks
-    console.log('Position Draft:', { ...positionDraft, ...data });
+    if (!positionDraft.positionName) {
+      setError('Недостају основни подаци о радном месту.');
+      return;
+    }
 
-    // TODO: Call tRPC mutation to save position
-    // navigate('/dashboard/positions');
+    setIsSaving(true);
+    setError('');
+
+    try {
+      // 1. Create the position
+      const position = await createPositionMutation.mutateAsync({
+        companyId,
+        positionName: positionDraft.positionName,
+        jobDescription: positionDraft.positionDescription,
+        workEnvironment: positionDraft.workplaceType,
+      });
+
+      // 2. Create all risk assessments for this position
+      for (const risk of data.risks) {
+        await createRiskMutation.mutateAsync({
+          positionId: position.id,
+          hazardId: risk.hazardId,
+          ei: risk.initialE,
+          pi: risk.initialP,
+          fi: risk.initialF,
+          correctiveMeasures: risk.correctiveMeasures,
+          e: risk.residualE,
+          p: risk.residualP,
+          f: risk.residualF,
+        });
+      }
+
+      // 3. Navigate to positions list on success
+      navigate('/app/positions');
+    } catch (err) {
+      setError(
+        'Грешка при чувању: ' + (err instanceof Error ? err.message : 'Непозната грешка')
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleSaveDraft = () => {
-    // TODO: Save draft to localStorage or backend
-    console.log('Saving draft:', positionDraft);
+    try {
+      localStorage.setItem('positionDraft', JSON.stringify(positionDraft));
+    } catch {
+      // Ignore localStorage errors
+    }
   };
 
   return (
@@ -222,6 +238,14 @@ export function PositionWizardPage() {
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Saving Overlay */}
+        {isSaving && (
+          <Alert>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <AlertDescription>Чување радног места и процена ризика...</AlertDescription>
           </Alert>
         )}
 
@@ -282,8 +306,8 @@ export function PositionWizardPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>{STEPS[currentStepIndex].title}</CardTitle>
-                <CardDescription>{STEPS[currentStepIndex].description}</CardDescription>
+                <CardTitle>{STEPS[currentStepIndex]?.title}</CardTitle>
+                <CardDescription>{STEPS[currentStepIndex]?.description}</CardDescription>
               </div>
 
               <Badge variant="outline">
@@ -298,14 +322,14 @@ export function PositionWizardPage() {
               <PositionBasicInfoForm
                 initialData={positionDraft}
                 onComplete={handleBasicInfoComplete}
-                onCancel={() => navigate('/dashboard/positions')}
+                onCancel={() => navigate('/app/positions')}
               />
             )}
 
             {/* Step 2: Workers */}
             {currentStep === 'workers' && (
               <PositionWorkersForm
-                initialData={positionDraft}
+                initialData={positionDraft as any}
                 onComplete={handleWorkersComplete}
                 onBack={handleBack}
               />
@@ -314,19 +338,13 @@ export function PositionWizardPage() {
             {/* Step 3: Risk Assessment */}
             {currentStep === 'risk-assessment' && (
               <RiskAssessmentWizard
-                positionId={null} // New position, no ID yet
-                initialRisks={positionDraft.risks || []}
+                positionId={null}
                 onComplete={handleRiskAssessmentComplete}
                 onBack={handleBack}
               />
             )}
           </CardContent>
         </Card>
-
-        {/* Navigation Hint */}
-        <div className="text-center text-sm text-muted-foreground">
-          💡 Можете сачувати драфт и наставити касније
-        </div>
       </div>
     </DashboardLayout>
   );

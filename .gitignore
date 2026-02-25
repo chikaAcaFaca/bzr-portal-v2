@@ -85,3 +85,26 @@ IMPLEMENTATION_PROGRESS.md
 
 # Other temp
 nul
+
+# Data/debug artifacts (not source code)
+backend/chunk-error-*.txt
+backend/chunk-missing-*.txt
+backend/claude-positions-*.json
+backend/merge-claude-results.json
+backend/employees-database*.json
+backend/sistematizacija*.json
+backend/sistematizacija*.txt
+backend/*.docx
+backend/test-output-*.docx
+backend/BOTISLAV_WORKFLOW_SIMULATION.md
+backend/OPASNOSTI_I_STETNOSTI.json
+backend/PROCENA_RIZIKA_COMPLETE.json
+backend/RADNA_MESTA_*.json
+backend/STRUKTURA_DOKUMENTA_ANALIZA.md
+backend/TEMPLATE_HTML.html
+backend/TEMPLATE_TEXT.txt
+frontend/dist-test/
+test-register*.json
+test-register*.html
+SUPABASE_FIX_SUMMARY.md
+specs/main/tasks.md.backup-*

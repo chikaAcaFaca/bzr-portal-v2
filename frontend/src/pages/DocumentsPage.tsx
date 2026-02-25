@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileText, Download, Search, Filter, Calendar, AlertCircle } from 'lucide-react';
+import { FileText, Download, Search, Filter, Calendar, AlertCircle, Loader2 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -17,7 +17,7 @@ import { DashboardLayout } from '../components/layout/DashboardLayout';
 import { DocumentList } from '../components/documents/DocumentList';
 import { UploadDocuments } from '../components/documents/UploadDocuments';
 import { UploadedDocumentsList } from '../components/documents/UploadedDocumentsList';
-import { trpc } from '../lib/trpc';
+import { trpc } from '../services/api';
 
 /**
  * DocumentsPage Component (T114)
@@ -47,6 +47,7 @@ export function DocumentsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<DocumentFilter>('all');
   const [sortBy, setSortBy] = useState<DocumentSort>('newest');
+  const [generatingId, setGeneratingId] = useState<number | null>(null);
 
   // Fetch uploaded documents (user uploads for AI extraction)
   const { data: uploadedDocs, isLoading: isLoadingUploaded, refetch: refetchUploaded } = trpc.documents.listUploaded.useQuery();
@@ -57,6 +58,30 @@ export function DocumentsPage() {
   //   status: filterStatus === 'all' ? undefined : filterStatus,
   //   sortBy,
   // });
+
+  // Fetch user's companies and positions for document generation
+  const { data: companiesList } = trpc.companies.list.useQuery();
+  const firstCompanyId = companiesList?.[0]?.id || null;
+  const { data: positionsData } = trpc.positions.listByCompany.useQuery(
+    { companyId: firstCompanyId!, page: 1, pageSize: 50 },
+    { enabled: firstCompanyId !== null }
+  );
+
+  // Document generation mutation
+  const generateDocMutation = trpc.documents.generate.useMutation({
+    onSuccess: (data) => {
+      setGeneratingId(null);
+      window.open(data.url, '_blank');
+    },
+    onError: () => {
+      setGeneratingId(null);
+    },
+  });
+
+  const handleGenerateDocument = (positionId: number) => {
+    setGeneratingId(positionId);
+    generateDocMutation.mutate({ positionId });
+  };
 
   // For now, use uploaded documents as the main document list
   const documents = uploadedDocs || [];
@@ -76,8 +101,8 @@ export function DocumentsPage() {
     console.log('Downloading document:', documentId, filename);
   };
 
-  const activeDocumentsCount = documents?.filter((doc) => doc.status === 'active').length || 0;
-  const expiredDocumentsCount = documents?.filter((doc) => doc.status === 'expired').length || 0;
+  const activeDocumentsCount = documents?.filter((doc) => doc.processingStatus === 'completed').length || 0;
+  const expiredDocumentsCount = documents?.filter((doc) => doc.processingStatus === 'failed').length || 0;
 
   return (
     <DashboardLayout>
@@ -137,6 +162,51 @@ export function DocumentsPage() {
 
         {/* Uploaded Documents List */}
         <UploadedDocumentsList />
+
+        {/* Generate Document per Position */}
+        {positionsData && positionsData.positions.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Генериши акт о процени ризика</CardTitle>
+              <CardDescription>Изаберите радно место за генерисање документа</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {positionsData.positions.map((position) => (
+                  <div
+                    key={position.id}
+                    className="flex items-center justify-between p-3 border rounded-lg"
+                  >
+                    <div>
+                      <p className="font-medium">{position.positionName}</p>
+                      {position.department && (
+                        <p className="text-sm text-muted-foreground">{position.department}</p>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => handleGenerateDocument(position.id)}
+                      disabled={generatingId === position.id}
+                    >
+                      {generatingId === position.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                      ) : (
+                        <Download className="h-4 w-4 mr-1" />
+                      )}
+                      Генериши DOCX
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              {generateDocMutation.error && (
+                <Alert variant="destructive" className="mt-3">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{generateDocMutation.error.message}</AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Filters and Search */}
         <Card>

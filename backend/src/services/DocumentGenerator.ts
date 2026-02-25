@@ -247,8 +247,8 @@ export class DocumentGenerator {
       const lowRiskCount = enrichedRisks.filter((r) => r.residualR <= 36).length;
       const hasHighRisks = highRiskCount > 0;
 
-      // 4. Prepare template data
-      const templateData: TemplateData = {
+      // 4. Prepare template data - flatten risks for simpler access
+      const templateData: any = {
         company: {
           name: data.company.name,
           pib: data.company.pib,
@@ -271,7 +271,13 @@ export class DocumentGenerator {
           workSchedule: data.position.workSchedule,
           additionalQualifications: data.position.additionalQualifications,
         },
+        // Include risks array for FOR loops
         risks: enrichedRisks,
+        // Also include flattened individual risks for direct access
+        ...enrichedRisks.reduce((acc, risk, idx) => {
+          acc[`risk${idx + 1}`] = risk;
+          return acc;
+        }, {} as Record<string, any>),
         generatedDate: formatSerbianDate(new Date()),
         totalHazardsCount: enrichedRisks.length,
         highRiskCount,
@@ -285,6 +291,7 @@ export class DocumentGenerator {
         highRisk: highRiskCount,
         mediumRisk: mediumRiskCount,
         lowRisk: lowRiskCount,
+        dataKeys: Object.keys(templateData),
       });
 
       // 5. Generate document
@@ -294,6 +301,7 @@ export class DocumentGenerator {
         cmdDelimiter: ['{{', '}}'],
         // Preserve newlines in multi-line fields like jobDescription and correctiveMeasures
         processLineBreaks: true,
+        noSandbox: true, // Allow access to all variables in FOR loops
       });
 
       logInfo('Document generated successfully', {

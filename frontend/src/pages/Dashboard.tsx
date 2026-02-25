@@ -8,6 +8,7 @@
 import { Link } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
+import { DashboardLayout } from '../components/layout/DashboardLayout';
 import { trpc } from '../services/api';
 import { useAuthStore } from '../stores/authStore';
 
@@ -21,6 +22,7 @@ export function Dashboard() {
   const trialDaysRemaining = 14; // TODO: Calculate from user.createdAt
 
   return (
+    <DashboardLayout>
     <div className="space-y-8">
       {/* Trial Banner */}
       {trialDaysRemaining > 0 && trialDaysRemaining <= 14 && (
@@ -189,5 +191,6 @@ export function Dashboard() {
         </Card>
       )}
     </div>
+    </DashboardLayout>
   );
 }

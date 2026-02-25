@@ -53,7 +53,7 @@ export function HazardSelector({
           <option value="">Изаберите врсту опасности</option>
           {hazards.map((hazard) => (
             <option key={hazard.id} value={hazard.id}>
-              {hazard.hazardCode} - {hazard.hazardName}
+              {hazard.code} - {hazard.nameSr}
             </option>
           ))}
         </select>
