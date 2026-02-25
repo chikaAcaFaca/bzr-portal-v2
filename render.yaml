@@ -5,29 +5,27 @@ services:
     region: frankfurt
     plan: free
     rootDir: backend
-    buildCommand: npm install && npm run build
-    startCommand: npm start
+    buildCommand: npm install
+    startCommand: npx tsx src/index.ts
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
-        value: 3000
+        value: "3000"
       - key: DATABASE_URL
         sync: false
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_SERVICE_KEY
-        sync: false
-      - key: SUPABASE_ANON_KEY
+      - key: CORS_ORIGIN
         sync: false
       - key: JWT_SECRET
         sync: false
-      - key: JWT_REFRESH_SECRET
+      - key: RESEND_API_KEY
         sync: false
-      - key: JWT_EXPIRY
-        value: 7d
-      - key: CORS_ORIGIN
-        value: https://bzr-portal1-9o5u.vercel.app
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
       - key: STORAGE_TYPE
         value: s3
       - key: WASABI_ACCESS_KEY
@@ -40,11 +38,6 @@ services:
         value: eu-central-1
       - key: WASABI_ENDPOINT
         value: https://s3.eu-central-1.wasabisys.com
-      - key: AI_PROVIDER
-        value: deepseek
-      - key: DEEPSEEK_API_KEY
-        sync: false
-      - key: ENCRYPTION_KEY
-        sync: false
       - key: LOG_LEVEL
         value: info
+    healthCheckPath: /health
