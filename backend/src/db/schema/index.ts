@@ -1,5 +1,8 @@
 // Export all schemas for Drizzle ORM
 
+// Shared enums (must be first to avoid circular deps)
+export * from './enums';
+
 // Multi-tenant: Agencies & Billing
 export * from './agencies';
 export * from './agency-users';

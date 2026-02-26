@@ -1,49 +1,10 @@
-import { pgTable, serial, varchar, text, timestamp, integer, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, serial, varchar, text, timestamp, integer } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 import { companies } from './companies';
+import { pricingTierEnum, billingCycleEnum, subscriptionStatusEnum } from './enums';
 
-/**
- * Pricing Tier Enum - based on employee count (B2B2C marketplace model)
- *
- * Companies (firms) pay subscription based on employee count:
- * tier_1:      1 employee         → 990 RSD/month
- * tier_5:      2-5 employees      → 1,990 RSD/month
- * tier_10:     6-10 employees     → 3,990 RSD/month
- * tier_20:     11-20 employees    → 6,990 RSD/month
- * tier_50:     21-50 employees    → 9,990 RSD/month
- * tier_50plus: 51+ employees      → 14,990 RSD/month
- *
- * Agencies: FREE (no subscription needed)
- * agency tier kept for backward compatibility
- */
-export const pricingTierEnum = pgEnum('pricing_tier', [
-  'agency',
-  'tier_1',
-  'tier_5',
-  'tier_10',
-  'tier_20',
-  'tier_50',
-  'tier_50plus',
-]);
-
-/**
- * Billing Cycle Enum
- *
- * monthly: price × 1 per month
- * annual:  price × 10 per year (2 months free)
- */
-export const billingCycleEnum = pgEnum('billing_cycle', ['monthly', 'annual']);
-
-/**
- * Subscription Status Enum
- */
-export const subscriptionStatusEnum = pgEnum('subscription_status', [
-  'active',
-  'past_due',
-  'cancelled',
-  'paused',
-  'trialing',
-]);
+// Re-export enums for backward compatibility
+export { pricingTierEnum, billingCycleEnum, subscriptionStatusEnum };
 
 /**
  * Subscriptions Table

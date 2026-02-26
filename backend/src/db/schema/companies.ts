@@ -2,7 +2,7 @@ import { pgTable, serial, varchar, text, timestamp, boolean, integer } from 'dri
 import { accountTierEnum } from './users';
 import { agencies } from './agencies';
 import { agencyUsers } from './agency-users';
-import { pricingTierEnum, billingCycleEnum } from './subscriptions';
+import { pricingTierEnum, billingCycleEnum } from './enums';
 
 /**
  * Companies Table
