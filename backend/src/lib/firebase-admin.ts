@@ -27,7 +27,21 @@ export function initFirebaseAdmin(): void {
 
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  let privateKey = process.env.FIREBASE_PRIVATE_KEY;
+
+  // Handle various escaping formats from environment variables
+  if (privateKey) {
+    // If the key is JSON-encoded (wrapped in quotes), parse it first
+    if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
+      try {
+        privateKey = JSON.parse(privateKey);
+      } catch {
+        // Not valid JSON, continue with manual replacement
+      }
+    }
+    // Replace literal \n sequences with actual newlines
+    privateKey = privateKey.replace(/\\n/g, '\n');
+  }
 
   if (!projectId || !clientEmail || !privateKey) {
     console.warn(
