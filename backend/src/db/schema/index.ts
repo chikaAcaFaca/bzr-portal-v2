@@ -41,3 +41,10 @@ export * from './news';
 // Phase 2: Marketplace & Lead Generation
 export * from './company-directory';
 export * from './messages';
+
+// Phase 3: Evidence Management, Injury Reports & Newsletter
+export * from './evidence-records';
+export * from './injury-reports';
+export * from './esaw-classifications';
+export * from './client-documents';
+export * from './newsletter';

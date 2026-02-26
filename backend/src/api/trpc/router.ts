@@ -16,6 +16,10 @@ import { hazardsRouter } from '../routes/hazards';
 import { agenciesRouter } from '../routes/agencies';
 import { companyDirectoryRouter } from '../routes/company-directory';
 import { messagingRouter } from '../routes/messaging';
+import { evidenceRouter } from '../routes/evidence';
+import { documentWorkflowRouter } from '../routes/document-workflow';
+import { injuryReportsRouter } from '../routes/injury-reports';
+import { newsletterRouter } from '../routes/newsletter';
 
 // Re-export builder functions for convenience
 export { router, publicProcedure, protectedProcedure, companyOwnerProcedure } from './builder';
@@ -47,6 +51,12 @@ export const appRouter = router({
   // Phase 2: Marketplace & Lead Generation
   companyDirectory: companyDirectoryRouter,
   messaging: messagingRouter,
+
+  // Phase 3: Evidence Management, Injury Reports & Newsletter
+  evidence: evidenceRouter,
+  documentWorkflow: documentWorkflowRouter,
+  injuryReports: injuryReportsRouter,
+  newsletter: newsletterRouter,
 });
 
 export type AppRouter = typeof appRouter;
