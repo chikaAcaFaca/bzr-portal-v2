@@ -34,39 +34,44 @@ export function initFirebaseAdmin(): void {
     // If the key is JSON-encoded (wrapped in quotes), parse it first
     if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
       try {
-        privateKey = JSON.parse(privateKey);
+        privateKey = JSON.parse(privateKey) as string;
       } catch {
         // Not valid JSON, continue with manual replacement
       }
     }
     // Replace literal \n sequences with actual newlines
     privateKey = privateKey.replace(/\\n/g, '\n');
+
+    // Debug: log key shape to diagnose Render env var issues
+    const lines = privateKey.split('\n').filter((l: string) => l.trim().length > 0);
+    console.log(`Firebase private key: ${lines.length} lines, starts with "${lines[0]?.substring(0, 30)}...", ends with "...${lines[lines.length - 1]?.slice(-30)}"`);
   }
 
   if (!projectId || !clientEmail || !privateKey) {
     console.warn(
       'Firebase Admin: Missing credentials (FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY). Firebase Auth will not work.'
     );
-    // Initialize with project ID only for development/testing
-    if (projectId) {
-      app = initializeApp({ projectId });
-    } else {
-      app = initializeApp();
-    }
+    app = initializeApp(projectId ? { projectId } : undefined);
     auth = getAuth(app);
     return;
   }
 
-  app = initializeApp({
-    credential: cert({
-      projectId,
-      clientEmail,
-      privateKey,
-    }),
-  });
-
-  auth = getAuth(app);
-  console.log(`Firebase Admin initialized for project: ${projectId}`);
+  try {
+    app = initializeApp({
+      credential: cert({
+        projectId,
+        clientEmail,
+        privateKey,
+      }),
+    });
+    auth = getAuth(app);
+    console.log(`Firebase Admin initialized for project: ${projectId}`);
+  } catch (error) {
+    console.error('Firebase Admin: Failed to initialize with private key:', error);
+    console.warn('Firebase Admin: Falling back to project-only init. Auth verification will NOT work.');
+    app = initializeApp({ projectId });
+    auth = getAuth(app);
+  }
 }
 
 export function getFirebaseAuth(): Auth {
