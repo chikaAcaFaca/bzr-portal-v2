@@ -365,8 +365,24 @@ export async function generateMonthlyInvoices(): Promise<{
   let generated = 0;
   const errors: string[] = [];
 
+  const now = new Date();
+  const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
+  const currentYear = String(now.getFullYear());
+
   for (const company of activeCompanies) {
     try {
+      // Check if invoice already exists for this company this month
+      const pozivNaBrojCheck = `${company.id}-${currentMonth}${currentYear}`;
+      const [existing] = await db
+        .select({ id: invoices.id })
+        .from(invoices)
+        .where(eq(invoices.pozivNaBroj, pozivNaBrojCheck))
+        .limit(1);
+
+      if (existing) {
+        continue; // Already invoiced this month
+      }
+
       const cycle = company.billingCycle || 'monthly';
       const invoice = await createInvoice(company.id, cycle as 'monthly' | 'annual');
       await generateInvoicePdf(invoice.id);

@@ -2,7 +2,6 @@ import { router, protectedProcedure, companyOwnerProcedure } from '../trpc/build
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { db } from '../../db';
-import { invoices } from '../../db/schema/invoices';
 import { companies } from '../../db/schema/companies';
 import { PRICING_TIERS } from '../../db/schema/subscriptions';
 import { NKNET_PAYMENT_INFO } from '../../lib/ips-qr';
@@ -15,7 +14,7 @@ import {
   generateMonthlyInvoices,
 } from '../../services/invoice.service';
 import { sendInvoiceEmail } from '../../services/email.service';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 
 /**
  * Billing tRPC Router
@@ -184,7 +183,7 @@ export const billingRouter = router({
       const [company] = await db
         .select({ id: companies.id })
         .from(companies)
-        .where(eq(companies.id, input.companyId))
+        .where(and(eq(companies.id, input.companyId), eq(companies.agencyId, ctx.agencyId)))
         .limit(1);
 
       if (!company) {
