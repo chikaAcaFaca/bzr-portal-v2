@@ -405,6 +405,90 @@ export async function sendMessageNotificationEmail(
   return sendEmail({ to, subject, html });
 }
 
+/**
+ * Send invoice email with PDF attachment info
+ *
+ * @param invoiceId Invoice ID to send
+ */
+export async function sendInvoiceEmail(invoiceId: number): Promise<string> {
+  // Lazy import to avoid circular dependency
+  const { getInvoice, generateInvoicePdf } = await import('./invoice.service');
+  const { db } = await import('../db');
+  const { companies } = await import('../db/schema/companies');
+  const { eq } = await import('drizzle-orm');
+
+  const invoice = await getInvoice(invoiceId);
+  if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
+
+  const [company] = await db
+    .select()
+    .from(companies)
+    .where(eq(companies.id, invoice.companyId))
+    .limit(1);
+
+  const recipientEmail = company?.ownerEmail || company?.email;
+  if (!recipientEmail) throw new Error(`No email for company ${invoice.companyId}`);
+
+  // Generate PDF buffer
+  const pdfBuffer = await generateInvoicePdf(invoiceId);
+
+  const subject = `Faktura ${invoice.invoiceNumber} - BZR Savetnik`;
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="sr-Latn">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Faktura</title>
+    </head>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <h1 style="color: #107C10;">Faktura ${invoice.invoiceNumber}</h1>
+
+      <p>Postovani,</p>
+
+      <p>U prilogu je faktura za BZR Savetnik pretplatu.</p>
+
+      <div style="background-color: #f4f4f4; border-radius: 8px; padding: 20px; margin: 20px 0;">
+        <p style="margin: 0;"><strong>Iznos:</strong> ${invoice.amount.toLocaleString('sr-RS')} RSD</p>
+        <p style="margin: 5px 0 0;"><strong>Poziv na broj:</strong> ${invoice.pozivNaBroj}</p>
+        <p style="margin: 5px 0 0;"><strong>Racun primaoca:</strong> 265-6510310002605-07</p>
+      </div>
+
+      <p>Platite skeniranjem IPS QR koda na fakturi ili putem uplatnice u banci.</p>
+
+      <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+
+      <p style="color: #999; font-size: 12px;">
+        NKNet Consulting DOO, Karadjordeva 18a, 26101 Pancevo<br>
+        PIB: 115190346, MB: 22125338
+      </p>
+    </body>
+    </html>
+  `;
+
+  // Send email with PDF attachment via Resend
+  const result = await resendClient.emails.send({
+    from: EMAIL_FROM,
+    to: recipientEmail,
+    subject,
+    html,
+    attachments: [
+      {
+        filename: `faktura-${invoice.invoiceNumber.replace('/', '-')}.pdf`,
+        content: pdfBuffer.toString('base64'),
+      },
+    ],
+  });
+
+  if (result.error) {
+    throw new Error(`Email send error: ${result.error.message}`);
+  }
+
+  console.log(`Invoice email sent: ${invoice.invoiceNumber} to ${recipientEmail}`);
+  return result.data?.id || '';
+}
+
 export const emailService = {
   sendEmail,
   sendVerificationEmail,
@@ -413,4 +497,5 @@ export const emailService = {
   sendDocumentReadyEmail,
   sendContactFormEmail,
   sendMessageNotificationEmail,
+  sendInvoiceEmail,
 };

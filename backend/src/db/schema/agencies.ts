@@ -15,7 +15,7 @@ export const agencySubscriptionStatusEnum = pgEnum('agency_subscription_status',
  * Agencies Table
  *
  * BZR agencies that manage safety compliance for multiple client companies.
- * Each agency has a Paddle subscription (599 RSD/month) and can have multiple agents.
+ * Each agency can have multiple agents. Agencies use the platform for free.
  */
 export const agencies = pgTable('agencies', {
   id: serial('id').primaryKey(),
@@ -37,9 +37,7 @@ export const agencies = pgTable('agencies', {
   // Responsible person
   directorName: varchar('director_name', { length: 255 }).notNull(),
 
-  // Paddle billing
-  paddleCustomerId: varchar('paddle_customer_id', { length: 100 }),
-  paddleSubscriptionId: varchar('paddle_subscription_id', { length: 100 }),
+  // Subscription status
   subscriptionStatus: agencySubscriptionStatusEnum('subscription_status').default('trial').notNull(),
   trialEndsAt: timestamp('trial_ends_at'),
   currentPeriodEndsAt: timestamp('current_period_ends_at'),

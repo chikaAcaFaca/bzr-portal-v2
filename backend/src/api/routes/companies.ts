@@ -267,6 +267,7 @@ export const companiesRouter = router({
         employeeCount: z.number().int().min(1),
         email: z.string().email(),
         fullName: z.string().min(2).max(255),
+        tekuciRacun: z.string().regex(/^\d{3}-\d{13}-\d{2}$/, 'Format: XXX-XXXXXXXXXXXXX-XX').optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
@@ -322,6 +323,7 @@ export const companiesRouter = router({
           ownerEmail: input.email,
           ownerFullName: input.fullName,
           pricingTier: tier,
+          tekuciRacun: input.tekuciRacun || null,
           activityCode: '0000', // Placeholder - to be filled later
           address: '', // To be filled in settings
           director: input.fullName,

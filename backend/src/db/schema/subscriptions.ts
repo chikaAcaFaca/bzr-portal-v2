@@ -9,17 +9,11 @@ export { pricingTierEnum, billingCycleEnum, subscriptionStatusEnum };
 /**
  * Subscriptions Table
  *
- * Tracks Paddle subscriptions for both agencies and individual client companies.
- * Agency subscription: 599 RSD/month (symbolic)
- * Client subscription: 1,990 - 19,990 RSD/month based on employee count
+ * Tracks subscriptions for individual client companies.
+ * Client subscription: 990 - 14,990 RSD/month based on employee count
  */
 export const subscriptions = pgTable('subscriptions', {
   id: serial('id').primaryKey(),
-
-  // Paddle identifiers
-  paddleSubscriptionId: varchar('paddle_subscription_id', { length: 100 }).notNull().unique(),
-  paddleCustomerId: varchar('paddle_customer_id', { length: 100 }).notNull(),
-  paddlePriceId: varchar('paddle_price_id', { length: 100 }),
 
   // Owner - either an agency or a company (client)
   agencyId: integer('agency_id').references(() => agencies.id),

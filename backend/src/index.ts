@@ -12,6 +12,8 @@ import { db } from './db';
 import { contactFormSubmissions } from './db/schema';
 import { sendContactFormEmail } from './services/email.service';
 import { initFirebaseAdmin } from './lib/firebase-admin';
+import authRoutes from './routes/auth';
+import documentUploadRoutes from './routes/document-upload';
 
 // Initialize Firebase Admin SDK
 initFirebaseAdmin();
@@ -139,37 +141,19 @@ app.post('/api/contact', contactLimiter, async (c) => {
   }
 });
 
-// Auth routes (T023-T027)
-import('./routes/auth').then((module) => {
-  app.route('/api/auth', module.default);
-  console.log('✅ Auth routes enabled');
-}).catch((error) => {
-  console.error('⚠️  Auth routes failed to load:', error);
-});
+// Static route registration (avoids Hono "matcher already built" error)
+app.route('/api/auth', authRoutes);
+console.log('✅ Auth routes enabled');
 
-// Document upload routes
-import('./routes/document-upload').then((module) => {
-  app.route('/api/documents', module.default);
-  console.log('✅ Document upload routes enabled');
-}).catch((error) => {
-  console.error('⚠️  Document upload routes failed to load:', error);
-});
-
-// Paddle webhook routes
-import('./api/routes/paddle-webhook').then((module) => {
-  app.route('/api/paddle', module.default);
-  console.log('✅ Paddle webhook routes enabled');
-}).catch((error) => {
-  console.error('⚠️  Paddle webhook routes failed to load:', error);
-});
+app.route('/api/documents', documentUploadRoutes);
+console.log('✅ Document upload routes enabled');
 
 // AI Chat routes (only if AI providers are configured)
-// This prevents backend startup failure if AI API keys are not set
 const hasAIProviders =
   process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.DEEPSEEK_API_KEY;
 
 if (hasAIProviders) {
-  // Dynamic import to avoid loading AI routes if no providers are configured
+  // Dynamic import kept for AI routes - only loaded if API keys are configured
   import('./routes/ai').then((module) => {
     app.route('/api/ai', module.default);
     console.log('✅ AI chat routes enabled');
@@ -179,7 +163,6 @@ if (hasAIProviders) {
 } else {
   console.log('ℹ️  AI chat routes disabled (no API keys configured)');
 
-  // Provide info endpoint instead
   app.get('/api/ai/*', (c) => {
     return c.json({
       success: false,

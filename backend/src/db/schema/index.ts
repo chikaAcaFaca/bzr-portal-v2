@@ -7,7 +7,7 @@ export * from './enums';
 export * from './agencies';
 export * from './agency-users';
 export * from './subscriptions';
-export * from './paddle-events';
+export * from './invoices';
 
 // Core business data
 export * from './hazards';

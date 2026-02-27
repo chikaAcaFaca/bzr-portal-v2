@@ -43,10 +43,10 @@ export const companies = pgTable('companies', {
   employeeCount: integer('employee_count').default(0), // Actual number of employees
   organizationChart: text('organization_chart'), // URL or file path
 
-  // Paddle billing (per-client subscription)
+  // Billing
   pricingTier: pricingTierEnum('pricing_tier'), // Determined by employeeCount
   billingCycle: billingCycleEnum('billing_cycle').default('monthly'),
-  paddleSubscriptionId: varchar('paddle_subscription_id', { length: 100 }),
+  tekuciRacun: varchar('tekuci_racun', { length: 50 }), // Bank account for payment slips
 
   // Legacy trial fields (kept for backward compatibility during migration)
   accountTier: accountTierEnum('account_tier').default('trial').notNull(),

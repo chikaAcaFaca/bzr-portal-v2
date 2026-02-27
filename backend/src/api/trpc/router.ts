@@ -20,6 +20,7 @@ import { evidenceRouter } from '../routes/evidence';
 import { documentWorkflowRouter } from '../routes/document-workflow';
 import { injuryReportsRouter } from '../routes/injury-reports';
 import { newsletterRouter } from '../routes/newsletter';
+import { billingRouter } from '../routes/billing';
 
 // Re-export builder functions for convenience
 export { router, publicProcedure, protectedProcedure, companyOwnerProcedure } from './builder';
@@ -57,6 +58,9 @@ export const appRouter = router({
   documentWorkflow: documentWorkflowRouter,
   injuryReports: injuryReportsRouter,
   newsletter: newsletterRouter,
+
+  // Billing & Invoices
+  billing: billingRouter,
 });
 
 export type AppRouter = typeof appRouter;
