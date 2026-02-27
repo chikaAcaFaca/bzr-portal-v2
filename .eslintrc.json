@@ -12,14 +12,5 @@
     "sourceType": "module"
   },
   "rules": {},
-  "overrides": [
-    {
-      "files": ["backend/**/*.ts"],
-      "extends": ["./backend/.eslintrc.json"]
-    },
-    {
-      "files": ["frontend/**/*.tsx", "frontend/**/*.ts"],
-      "extends": ["./frontend/.eslintrc.json"]
-    }
-  ]
+  "ignorePatterns": ["backend/**", "frontend/**"]
 }
