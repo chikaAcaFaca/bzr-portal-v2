@@ -130,6 +130,69 @@ export const companyDirectoryRouter = router({
     }),
 
   /**
+   * Public listing - browse companies without auth (for SEO directory pages)
+   */
+  publicList: publicProcedure
+    .input(
+      z.object({
+        search: z.string().max(200).optional(),
+        sifraDelatnosti: z.string().max(10).optional(),
+        opstina: z.string().max(255).optional(),
+        page: z.number().int().min(1).default(1),
+        pageSize: z.number().int().min(10).max(50).default(25),
+      })
+    )
+    .query(async ({ input }) => {
+      const { page, pageSize, ...filters } = input;
+      const offset = (page - 1) * pageSize;
+
+      const conditions = [];
+
+      if (filters.search) {
+        conditions.push(ilike(companyDirectory.poslovnoIme, `%${filters.search}%`));
+      }
+      if (filters.sifraDelatnosti) {
+        // Support prefix matching: "41" matches "4110", "4120", etc.
+        conditions.push(ilike(companyDirectory.sifraDelatnosti, `${filters.sifraDelatnosti}%`));
+      }
+      if (filters.opstina) {
+        conditions.push(ilike(companyDirectory.opstina, `%${filters.opstina}%`));
+      }
+
+      const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+      const [items, countResult] = await Promise.all([
+        db
+          .select({
+            maticniBroj: companyDirectory.maticniBroj,
+            poslovnoIme: companyDirectory.poslovnoIme,
+            pravnaForma: companyDirectory.pravnaForma,
+            sifraDelatnosti: companyDirectory.sifraDelatnosti,
+            opstina: companyDirectory.opstina,
+            brojZaposlenih: companyDirectory.brojZaposlenih,
+            registrovan: companyDirectory.registrovan,
+          })
+          .from(companyDirectory)
+          .where(whereClause)
+          .orderBy(companyDirectory.poslovnoIme)
+          .limit(pageSize)
+          .offset(offset),
+        db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(companyDirectory)
+          .where(whereClause),
+      ]);
+
+      return {
+        items,
+        total: countResult[0]?.count ?? 0,
+        page,
+        pageSize,
+        totalPages: Math.ceil((countResult[0]?.count ?? 0) / pageSize),
+      };
+    }),
+
+  /**
    * Public profile data (limited fields for SEO pages)
    */
   getPublicProfile: publicProcedure
