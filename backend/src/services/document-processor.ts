@@ -93,6 +93,7 @@ export class DocumentProcessor {
       // Провери да ли је валидан UTF-8
       if (text.includes('�')) {
         // Покушај Windows-1251 (Cyrillic)
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const iconv = require('iconv-lite');
         text = iconv.decode(buffer, 'win1251');
       }
