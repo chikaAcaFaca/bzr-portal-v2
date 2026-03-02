@@ -1,10 +1,13 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { router, publicProcedure, protectedProcedure } from '../trpc/builder';
+import { router, publicProcedure, protectedProcedure, companyOwnerProcedure } from '../trpc/builder';
 import { db } from '../../db';
 import { companyDirectory } from '../../db/schema/company-directory';
+import { companies } from '../../db/schema/companies';
 import { eq, ilike, and, sql, desc, isNull, isNotNull } from 'drizzle-orm';
 import { enrichCompany } from '../../services/apr-enrichment.service';
+import { randomBytes } from 'crypto';
+import { sendCompanyInviteEmail } from '../../services/email.service';
 
 /**
  * Company Directory Router
@@ -214,6 +217,11 @@ export const companyDirectoryRouter = router({
           registrovan: companyDirectory.registrovan,
           pretplataAktivna: companyDirectory.pretplataAktivna,
           bzrAgencijaNaziv: companyDirectory.bzrAgencijaNaziv,
+          // Mini website fields
+          kratakOpis: companyDirectory.kratakOpis,
+          usluge: companyDirectory.usluge,
+          logoUrl: companyDirectory.logoUrl,
+          claimedAt: companyDirectory.claimedAt,
           // Contact info only if flagged as visible
           telefonVidljiv: companyDirectory.telefonVidljiv,
           emailVidljiv: companyDirectory.emailVidljiv,
@@ -320,5 +328,193 @@ export const companyDirectoryRouter = router({
         pageSize,
         totalPages: Math.ceil((countResult[0]?.count ?? 0) / pageSize),
       };
+    }),
+
+  // ============================================
+  // Mini Website: Claim & Update Profile
+  // ============================================
+
+  /**
+   * Claim a company profile - link the registered company to their directory entry
+   * Verifies that PIB from the companies table matches the company_directory entry
+   */
+  claimProfile: companyOwnerProcedure
+    .input(z.object({ maticniBroj: z.string().min(1).max(8) }))
+    .mutation(async ({ input, ctx }) => {
+      const companyId = ctx.companyOwnerId;
+
+      // Get the registered company's PIB
+      const [company] = await db
+        .select({ id: companies.id, pib: companies.pib, name: companies.name, phone: companies.phone, email: companies.email })
+        .from(companies)
+        .where(eq(companies.id, companyId))
+        .limit(1);
+
+      if (!company) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Registrovana firma nije pronadjena' });
+      }
+
+      // Find the directory entry
+      const [dirEntry] = await db
+        .select()
+        .from(companyDirectory)
+        .where(eq(companyDirectory.maticniBroj, input.maticniBroj))
+        .limit(1);
+
+      if (!dirEntry) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Firma nije pronadjena u direktorijumu' });
+      }
+
+      // Check if already claimed
+      if (dirEntry.claimedByCompanyId) {
+        throw new TRPCError({ code: 'CONFLICT', message: 'Ova firma je vec preuzeta' });
+      }
+
+      // Update directory entry
+      const [updated] = await db
+        .update(companyDirectory)
+        .set({
+          claimedAt: new Date(),
+          claimedByCompanyId: companyId,
+          registrovan: true,
+          datumRegistracije: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(companyDirectory.maticniBroj, input.maticniBroj))
+        .returning();
+
+      return { success: true, maticniBroj: updated.maticniBroj };
+    }),
+
+  /**
+   * Update claimed company profile (mini website personalization)
+   * Only the company that claimed the profile can update it
+   */
+  updateMyProfile: companyOwnerProcedure
+    .input(
+      z.object({
+        kratakOpis: z.string().max(500).optional(),
+        usluge: z.string().max(1000).optional(),
+        telefonVidljiv: z.boolean().optional(),
+        emailVidljiv: z.boolean().optional(),
+        kontaktFormAktivna: z.boolean().optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const companyId = ctx.companyOwnerId;
+
+      // Find directory entry claimed by this company
+      const [dirEntry] = await db
+        .select({ id: companyDirectory.id, maticniBroj: companyDirectory.maticniBroj })
+        .from(companyDirectory)
+        .where(eq(companyDirectory.claimedByCompanyId, companyId))
+        .limit(1);
+
+      if (!dirEntry) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Nemate preuzetu stranicu firme. Prvo preuzmite profil.',
+        });
+      }
+
+      const updateData: Record<string, any> = { updatedAt: new Date() };
+      if (input.kratakOpis !== undefined) updateData.kratakOpis = input.kratakOpis;
+      if (input.usluge !== undefined) updateData.usluge = input.usluge;
+      if (input.telefonVidljiv !== undefined) updateData.telefonVidljiv = input.telefonVidljiv;
+      if (input.emailVidljiv !== undefined) updateData.emailVidljiv = input.emailVidljiv;
+      if (input.kontaktFormAktivna !== undefined) updateData.kontaktFormAktivna = input.kontaktFormAktivna;
+
+      const [updated] = await db
+        .update(companyDirectory)
+        .set(updateData)
+        .where(eq(companyDirectory.id, dirEntry.id))
+        .returning();
+
+      return updated;
+    }),
+
+  // ============================================
+  // Invite System: Batch email invitations
+  // ============================================
+
+  /**
+   * Send invite emails to companies that have email but haven't been invited
+   * Protected: admin/agency users only
+   */
+  sendInvites: protectedProcedure
+    .input(
+      z.object({
+        filter: z.object({
+          sifraDelatnosti: z.string().max(10).optional(),
+          opstina: z.string().max(255).optional(),
+          limit: z.number().int().min(1).max(100).default(50),
+        }),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const { filter } = input;
+
+      // Build query conditions: has email, not invited, not registered
+      const conditions = [
+        isNotNull(companyDirectory.email),
+        isNull(companyDirectory.inviteSentAt),
+        eq(companyDirectory.registrovan, false),
+      ];
+
+      if (filter.sifraDelatnosti) {
+        conditions.push(ilike(companyDirectory.sifraDelatnosti, `${filter.sifraDelatnosti}%`));
+      }
+      if (filter.opstina) {
+        conditions.push(ilike(companyDirectory.opstina, `%${filter.opstina}%`));
+      }
+
+      // Get companies to invite
+      const toInvite = await db
+        .select({
+          id: companyDirectory.id,
+          maticniBroj: companyDirectory.maticniBroj,
+          poslovnoIme: companyDirectory.poslovnoIme,
+          email: companyDirectory.email,
+        })
+        .from(companyDirectory)
+        .where(and(...conditions))
+        .limit(filter.limit);
+
+      let sent = 0;
+      const errors: string[] = [];
+
+      for (const company of toInvite) {
+        if (!company.email) continue;
+
+        try {
+          // Generate unique invite token
+          const inviteToken = randomBytes(32).toString('hex');
+
+          // Send email
+          await sendCompanyInviteEmail({
+            to: company.email,
+            companyName: company.poslovnoIme,
+            maticniBroj: company.maticniBroj,
+            inviteToken,
+          });
+
+          // Mark as invited
+          await db
+            .update(companyDirectory)
+            .set({
+              inviteSentAt: new Date(),
+              inviteToken,
+              updatedAt: new Date(),
+            })
+            .where(eq(companyDirectory.id, company.id));
+
+          sent++;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          errors.push(`${company.poslovnoIme} (${company.email}): ${message}`);
+        }
+      }
+
+      return { sent, total: toInvite.length, errors };
     }),
 });

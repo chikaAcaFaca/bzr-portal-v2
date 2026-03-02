@@ -49,6 +49,18 @@ export const companyDirectory = pgTable('company_directory', {
   bzrSaradnja: varchar('bzr_saradnja', { length: 50 }),
   napomena: text('napomena'),
 
+  // Mini Website personalization
+  kratakOpis: text('kratak_opis'),
+  usluge: text('usluge'),
+  logoUrl: varchar('logo_url', { length: 500 }),
+  kontaktFormAktivna: boolean('kontakt_form_aktivna').default(false),
+
+  // Claim & Invite system
+  claimedAt: timestamp('claimed_at'),
+  claimedByCompanyId: integer('claimed_by_company_id'),
+  inviteSentAt: timestamp('invite_sent_at'),
+  inviteToken: varchar('invite_token', { length: 64 }),
+
   // Enrichment tracking
   enrichedAt: timestamp('enriched_at'),
   enrichmentSource: varchar('enrichment_source', { length: 50 }),

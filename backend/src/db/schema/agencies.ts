@@ -53,6 +53,14 @@ export const agencies = pgTable('agencies', {
   isPublicOnMarketplace: boolean('is_public_on_marketplace').default(true),
   coverageArea: text('coverage_area'),
 
+  // Premium features
+  isPremium: boolean('is_premium').default(false),
+  premiumSince: timestamp('premium_since'),
+  maxClients: integer('max_clients').default(10),
+  featuredOrder: integer('featured_order'),
+  bannerUrl: varchar('banner_url', { length: 500 }),
+  socialLinks: text('social_links'), // JSON: { linkedin, facebook, instagram }
+
   // Audit fields
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),

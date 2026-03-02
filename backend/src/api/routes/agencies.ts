@@ -4,7 +4,9 @@ import { router, publicProcedure, protectedProcedure } from '../trpc/builder';
 import { db } from '../../db';
 import { agencies, type NewAgency } from '../../db/schema/agencies';
 import { agencyUsers, type NewAgencyUser } from '../../db/schema/agency-users';
-import { eq, ilike, and, or } from 'drizzle-orm';
+import { companies } from '../../db/schema/companies';
+import { companyDirectory } from '../../db/schema/company-directory';
+import { eq, ilike, and, or, sql, desc } from 'drizzle-orm';
 
 /**
  * Agencies Router
@@ -165,6 +167,14 @@ export const agenciesRouter = router({
         website: z.string().max(255).optional(),
         directorName: z.string().max(255).optional(),
         licenseNumber: z.string().max(100).optional(),
+        // Marketplace profile fields
+        description: z.string().max(2000).optional(),
+        specializations: z.string().max(1000).optional(),
+        coverageArea: z.string().max(500).optional(),
+        logoUrl: z.string().max(500).optional(),
+        bannerUrl: z.string().max(500).optional(),
+        socialLinks: z.string().max(1000).optional(),
+        isPublicOnMarketplace: z.boolean().optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
@@ -362,9 +372,17 @@ export const agenciesRouter = router({
           reviewCount: agencies.reviewCount,
           coverageArea: agencies.coverageArea,
           logoUrl: agencies.logoUrl,
+          isPremium: agencies.isPremium,
+          featuredOrder: agencies.featuredOrder,
         })
         .from(agencies)
         .where(and(...conditions))
+        .orderBy(
+          // Premium agencies first (by featured_order), then alphabetically
+          sql`CASE WHEN ${agencies.isPremium} = true THEN 0 ELSE 1 END`,
+          sql`COALESCE(${agencies.featuredOrder}, 999999)`,
+          agencies.name
+        )
         .limit(pageSize)
         .offset(offset);
 
@@ -393,6 +411,9 @@ export const agenciesRouter = router({
           coverageArea: agencies.coverageArea,
           logoUrl: agencies.logoUrl,
           licenseNumber: agencies.licenseNumber,
+          isPremium: agencies.isPremium,
+          bannerUrl: agencies.bannerUrl,
+          socialLinks: agencies.socialLinks,
         })
         .from(agencies)
         .where(
@@ -410,4 +431,50 @@ export const agenciesRouter = router({
 
       return agency;
     }),
+
+  // ============================================
+  // Agency Dashboard Stats
+  // ============================================
+
+  /**
+   * Get dashboard statistics for the current agency
+   */
+  dashboardStats: protectedProcedure.query(async ({ ctx }) => {
+    const agencyId = (ctx as any).agencyId as number | null;
+    if (!agencyId) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Agencija nije pronadjena' });
+    }
+
+    // Get agency info (for premium check)
+    const [agency] = await db
+      .select({ isPremium: agencies.isPremium, maxClients: agencies.maxClients })
+      .from(agencies)
+      .where(eq(agencies.id, agencyId))
+      .limit(1);
+
+    // Count total clients (companies assigned to this agency)
+    const [clientStats] = await db
+      .select({
+        totalClients: sql<number>`count(*)::int`,
+        newThisMonth: sql<number>`count(*) filter (where ${companies.createdAt} >= date_trunc('month', now()))::int`,
+      })
+      .from(companies)
+      .where(eq(companies.agencyId, agencyId));
+
+    // Count directory leads (companies in directory linked to this agency)
+    const [directoryStats] = await db
+      .select({
+        directoryLinked: sql<number>`count(*)::int`,
+      })
+      .from(companyDirectory)
+      .where(eq(companyDirectory.bzrAgencijaId, agencyId));
+
+    return {
+      totalClients: clientStats?.totalClients ?? 0,
+      newClientsThisMonth: clientStats?.newThisMonth ?? 0,
+      directoryLinked: directoryStats?.directoryLinked ?? 0,
+      isPremium: agency?.isPremium ?? false,
+      maxClients: agency?.maxClients ?? 10,
+    };
+  }),
 });

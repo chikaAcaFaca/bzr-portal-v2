@@ -489,6 +489,92 @@ export async function sendInvoiceEmail(invoiceId: number): Promise<string> {
   return result.data?.id || '';
 }
 
+/**
+ * Send company invite email - invites a company from the directory to activate their free page
+ *
+ * @param data Company invite data
+ */
+export async function sendCompanyInviteEmail(data: {
+  to: string;
+  companyName: string;
+  maticniBroj: string;
+  inviteToken: string;
+}): Promise<string> {
+  const frontendUrl = process.env.FRONTEND_URL || 'https://bzr-savetnik.com';
+  const companyPageUrl = `${frontendUrl}/firma/${data.maticniBroj}`;
+  const activateUrl = `${frontendUrl}/registracija?ref=firma&mb=${data.maticniBroj}&token=${data.inviteToken}`;
+
+  const subject = `Vasa firma ${data.companyName} ima besplatnu web stranicu - BZR Savetnik`;
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="sr-Latn">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Aktivirajte besplatnu web stranicu</title>
+    </head>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
+      <div style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, #16a34a, #15803d); padding: 30px; text-align: center;">
+          <div style="display: inline-block; background-color: rgba(255,255,255,0.2); border-radius: 8px; padding: 8px 16px;">
+            <span style="color: white; font-weight: bold; font-size: 18px;">BZR Savetnik</span>
+          </div>
+        </div>
+
+        <!-- Content -->
+        <div style="padding: 30px;">
+          <p style="font-size: 16px;">Postovani,</p>
+
+          <p>Vasa firma <strong>${data.companyName}</strong> ima BESPLATNU web stranicu na BZR Savetnik platformi:</p>
+
+          <div style="text-align: center; margin: 25px 0;">
+            <a href="${companyPageUrl}"
+               style="color: #16a34a; font-size: 16px; font-weight: bold;">
+              ${companyPageUrl}
+            </a>
+          </div>
+
+          <p style="font-weight: 600;">Aktivirajte stranicu i dobijte:</p>
+
+          <ul style="padding-left: 20px; line-height: 2;">
+            <li>Profesionalnu web stranicu vase firme</li>
+            <li>Vidljivost u direktorijumu 136.000+ srpskih firmi</li>
+            <li>Pristup BZR dokumentaciji (Akt o proceni rizika, Evidencije 1-11)</li>
+            <li>Povezivanje sa BZR agencijama</li>
+          </ul>
+
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${activateUrl}"
+               style="background-color: #16a34a; color: white; padding: 14px 40px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 16px;">
+              Aktivirajte besplatno
+            </a>
+          </div>
+
+          <p style="color: #666; font-size: 14px; text-align: center;">
+            Bez kreditne kartice. Besplatno 30 dana.
+          </p>
+        </div>
+
+        <!-- Footer -->
+        <div style="background-color: #f4f4f4; padding: 20px; text-align: center; border-top: 1px solid #eee;">
+          <p style="margin: 0; color: #999; font-size: 12px;">
+            Srdacan pozdrav,<br>
+            <strong>BZR Savetnik tim</strong>
+          </p>
+          <p style="margin: 10px 0 0; color: #bbb; font-size: 11px;">
+            Primili ste ovaj email jer je vasa firma registrovana u Agenciji za privredne registre.
+          </p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  return sendEmail({ to: data.to, subject, html });
+}
+
 export const emailService = {
   sendEmail,
   sendVerificationEmail,
@@ -498,4 +584,5 @@ export const emailService = {
   sendContactFormEmail,
   sendMessageNotificationEmail,
   sendInvoiceEmail,
+  sendCompanyInviteEmail,
 };
