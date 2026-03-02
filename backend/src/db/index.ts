@@ -9,11 +9,13 @@ if (!connectionString) {
 }
 
 // Create postgres client with SSL for Neon/cloud PostgreSQL
+// prepare: false is required for Neon's connection pooler (PgBouncer)
 const client = postgres(connectionString, {
   ssl: 'require',
   max: 10,
   idle_timeout: 20,
   connect_timeout: 30,
+  prepare: false,
 });
 
 // Create drizzle instance with schema
