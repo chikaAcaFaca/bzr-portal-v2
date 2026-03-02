@@ -13,12 +13,11 @@ import { S3Client } from '@aws-sdk/client-s3';
 const WASABI_ENDPOINT = process.env.WASABI_ENDPOINT || 'https://s3.eu-central-1.wasabisys.com';
 const WASABI_REGION = process.env.WASABI_REGION || 'eu-central-1';
 
-if (!process.env.WASABI_ACCESS_KEY_ID) {
-  throw new Error('WASABI_ACCESS_KEY_ID environment variable is required');
-}
+const accessKeyId = process.env.WASABI_ACCESS_KEY_ID || process.env.WASABI_ACCESS_KEY;
+const secretAccessKey = process.env.WASABI_SECRET_ACCESS_KEY || process.env.WASABI_SECRET_KEY;
 
-if (!process.env.WASABI_SECRET_ACCESS_KEY) {
-  throw new Error('WASABI_SECRET_ACCESS_KEY environment variable is required');
+if (!accessKeyId || !secretAccessKey) {
+  console.warn('Wasabi S3 credentials not configured - document storage will be unavailable');
 }
 
 /**
@@ -39,10 +38,10 @@ if (!process.env.WASABI_SECRET_ACCESS_KEY) {
 export const s3Client = new S3Client({
   endpoint: WASABI_ENDPOINT,
   region: WASABI_REGION,
-  credentials: {
-    accessKeyId: process.env.WASABI_ACCESS_KEY_ID,
-    secretAccessKey: process.env.WASABI_SECRET_ACCESS_KEY,
-  },
+  credentials: accessKeyId && secretAccessKey ? {
+    accessKeyId,
+    secretAccessKey,
+  } : undefined,
   // Force path-style URLs for Wasabi compatibility
   forcePathStyle: true,
 });
