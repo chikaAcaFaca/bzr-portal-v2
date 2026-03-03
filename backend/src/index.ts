@@ -44,14 +44,35 @@ app.use(
   })
 );
 
-// Health check endpoint
-app.get('/health', (c) => {
-  return c.json({
+// Health check endpoint with optional DB test
+app.get('/health', async (c) => {
+  const result: Record<string, unknown> = {
     status: 'ok',
     timestamp: new Date().toISOString(),
     service: 'BZR Portal Backend',
-    version: '1.0.0',
-  });
+    version: '1.0.1',
+    dbConfigured: !!process.env.DATABASE_URL,
+  };
+
+  // Test DB connection if ?db=1 is passed
+  if (c.req.query('db') === '1') {
+    try {
+      const { db } = await import('./db');
+      const { sql } = await import('drizzle-orm');
+      const [row] = await db.execute(sql`SELECT 1 as test`);
+      result.db = 'connected';
+      result.dbTest = row;
+    } catch (err: unknown) {
+      result.db = 'error';
+      result.dbError = err instanceof Error ? {
+        name: err.name,
+        message: err.message,
+        stack: err.stack?.split('\n').slice(0, 5),
+      } : String(err);
+    }
+  }
+
+  return c.json(result);
 });
 
 // Contact form endpoint (public, with rate limiting)
