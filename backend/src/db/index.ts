@@ -8,10 +8,14 @@ if (!connectionString) {
   throw new Error('DATABASE_URL environment variable is not set');
 }
 
+// Log connection target (without password)
+const sanitizedUrl = connectionString.replace(/:[^@]*@/, ':***@');
+console.log('🔌 Connecting to database:', sanitizedUrl);
+
 // Create postgres client with SSL for Neon/cloud PostgreSQL
 // prepare: false is required for Neon's connection pooler (PgBouncer)
 const client = postgres(connectionString, {
-  ssl: 'require',
+  ssl: { rejectUnauthorized: false },
   max: 10,
   idle_timeout: 20,
   connect_timeout: 30,
@@ -20,6 +24,13 @@ const client = postgres(connectionString, {
 
 // Create drizzle instance with schema
 export const db = drizzle(client, { schema });
+
+// Test database connection on startup
+client`SELECT 1 as connected`.then(() => {
+  console.log('✅ Database connection successful');
+}).catch((err: unknown) => {
+  console.error('❌ Database connection failed:', err);
+});
 
 // Export schema for use in other modules
 export * from './schema';
