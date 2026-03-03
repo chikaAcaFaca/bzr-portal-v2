@@ -10,6 +10,47 @@ import { randomBytes } from 'crypto';
 import { sendCompanyInviteEmail } from '../../services/email.service';
 
 /**
+ * Normalize search text for Serbian: Cyrillic→Latin, remove diacritics, lowercase.
+ * Allows users to search with Cyrillic, Latin, or ASCII-only input.
+ */
+function normalizeForSearch(text: string): string {
+  const cyrMap: Record<string, string> = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'ђ': 'dj', 'е': 'e',
+    'ж': 'z', 'з': 'z', 'и': 'i', 'ј': 'j', 'к': 'k', 'л': 'l', 'љ': 'lj',
+    'м': 'm', 'н': 'n', 'њ': 'nj', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's',
+    'т': 't', 'ћ': 'c', 'у': 'u', 'ф': 'f', 'х': 'h', 'ц': 'c', 'ч': 'c',
+    'џ': 'dz', 'ш': 's',
+    'А': 'a', 'Б': 'b', 'В': 'v', 'Г': 'g', 'Д': 'd', 'Ђ': 'dj', 'Е': 'e',
+    'Ж': 'z', 'З': 'z', 'И': 'i', 'Ј': 'j', 'К': 'k', 'Л': 'l', 'Љ': 'lj',
+    'М': 'm', 'Н': 'n', 'Њ': 'nj', 'О': 'o', 'П': 'p', 'Р': 'r', 'С': 's',
+    'Т': 't', 'Ћ': 'c', 'У': 'u', 'Ф': 'f', 'Х': 'h', 'Ц': 'c', 'Ч': 'c',
+    'Џ': 'dz', 'Ш': 's',
+  };
+
+  let result = '';
+  for (const char of text) {
+    result += cyrMap[char] || char;
+  }
+
+  // Remove Latin diacritics
+  return result
+    .replace(/[čćČĆ]/g, 'c')
+    .replace(/[šŠ]/g, 's')
+    .replace(/[đĐ]/g, 'd')
+    .replace(/[žŽ]/g, 'z')
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * SQL expression to normalize a column for search comparison.
+ * Removes Latin diacritics from the column value (lowercase + translate).
+ * Note: Cyrillic conversion is done on the search term in TypeScript.
+ */
+const normalizedPoslovnoIme = sql`lower(translate(${companyDirectory.poslovnoIme}, 'čćČĆšŠđĐžŽ', 'ccCCssSsDDzZ'))`;
+const normalizedOpstina = sql`lower(translate(${companyDirectory.opstina}, 'čćČĆšŠđĐžŽ', 'ccCCssSsDDzZ'))`;
+
+/**
  * Company Directory Router
  *
  * Endpoints for browsing the 750k+ company directory (APR data).
@@ -41,7 +82,10 @@ export const companyDirectoryRouter = router({
       const conditions = [];
 
       if (filters.search) {
-        conditions.push(ilike(companyDirectory.poslovnoIme, `%${filters.search}%`));
+        const normalized = normalizeForSearch(filters.search);
+        if (normalized) {
+          conditions.push(sql`${normalizedPoslovnoIme} LIKE ${'%' + normalized + '%'}`);
+        }
       }
       if (filters.sifraDelatnosti) {
         conditions.push(eq(companyDirectory.sifraDelatnosti, filters.sifraDelatnosti));
@@ -50,7 +94,10 @@ export const companyDirectoryRouter = router({
         conditions.push(eq(companyDirectory.sifraOpstine, filters.sifraOpstine));
       }
       if (filters.opstina) {
-        conditions.push(ilike(companyDirectory.opstina, `%${filters.opstina}%`));
+        const normalizedOps = normalizeForSearch(filters.opstina);
+        if (normalizedOps) {
+          conditions.push(sql`${normalizedOpstina} LIKE ${'%' + normalizedOps + '%'}`);
+        }
       }
       if (filters.registrovan !== undefined) {
         conditions.push(eq(companyDirectory.registrovan, filters.registrovan));
@@ -152,14 +199,22 @@ export const companyDirectoryRouter = router({
       const conditions = [];
 
       if (filters.search) {
-        conditions.push(ilike(companyDirectory.poslovnoIme, `%${filters.search}%`));
+        const normalized = normalizeForSearch(filters.search);
+        if (normalized) {
+          // Search normalized column (handles Cyrillic input, diacritics, ASCII-only)
+          conditions.push(sql`${normalizedPoslovnoIme} LIKE ${'%' + normalized + '%'}`);
+        }
       }
       if (filters.sifraDelatnosti) {
         // Support prefix matching: "41" matches "4110", "4120", etc.
         conditions.push(ilike(companyDirectory.sifraDelatnosti, `${filters.sifraDelatnosti}%`));
       }
       if (filters.opstina) {
-        conditions.push(ilike(companyDirectory.opstina, `%${filters.opstina}%`));
+        // Normalize opstina search too (Cyrillic in DB, user may type Latin)
+        const normalizedOps = normalizeForSearch(filters.opstina);
+        if (normalizedOps) {
+          conditions.push(sql`${normalizedOpstina} LIKE ${'%' + normalizedOps + '%'}`);
+        }
       }
 
       const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
