@@ -39,7 +39,15 @@ app.use('*', prettyJSON());
 app.use(
   '*',
   cors({
-    origin: CORS_ORIGINS,
+    origin: (origin) => {
+      // Allow configured origins
+      if (CORS_ORIGINS.includes(origin)) return origin;
+      // Allow all Vercel preview deployments
+      if (origin.endsWith('.vercel.app')) return origin;
+      // Allow bzr-savetnik.com and subdomains
+      if (origin.endsWith('bzr-savetnik.com')) return origin;
+      return CORS_ORIGINS[0];
+    },
     credentials: true,
   })
 );
