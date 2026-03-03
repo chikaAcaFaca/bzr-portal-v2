@@ -44,11 +44,15 @@ function normalizeForSearch(text: string): string {
 
 /**
  * SQL expression to normalize a column for search comparison.
- * Removes Latin diacritics from the column value (lowercase + translate).
- * Note: Cyrillic conversion is done on the search term in TypeScript.
+ * Handles both Cyrillic (in opstina) and Latin diacritics (in poslovnoIme).
+ * Cyrillic chars (30): абвгдђежзијклљмнњопрстћуфхцчџш
+ * Latin diacritics (5): čćšđž
+ * Digraphs (љ,њ,џ) become single chars (l,n,d) - acceptable for search.
  */
-const normalizedPoslovnoIme = sql`lower(translate(${companyDirectory.poslovnoIme}, 'čćČĆšŠđĐžŽ', 'ccCCssSsDDzZ'))`;
-const normalizedOpstina = sql`lower(translate(${companyDirectory.opstina}, 'čćČĆšŠđĐžŽ', 'ccCCssSsDDzZ'))`;
+const CYR_FROM = 'абвгдђежзијклљмнњопрстћуфхцчџшčćšđž';
+const CYR_TO   = 'abvgddezzijkllmnnoprstcufhccdsccsdz';
+const normalizedPoslovnoIme = sql`translate(lower(${companyDirectory.poslovnoIme}), ${CYR_FROM}, ${CYR_TO})`;
+const normalizedOpstina = sql`translate(lower(${companyDirectory.opstina}), ${CYR_FROM}, ${CYR_TO})`;
 
 /**
  * Company Directory Router
