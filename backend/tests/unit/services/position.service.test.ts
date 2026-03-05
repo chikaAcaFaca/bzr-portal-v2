@@ -28,10 +28,10 @@ describe('Position Service Validators', () => {
   describe('PIB Validation (Tax ID)', () => {
     describe('Valid PIB Numbers', () => {
       it('should validate correct PIB with checksum', () => {
-        // Real valid PIB examples
-        expect(validatePIB('106006801')).toBe(true);
+        // Real valid PIB examples (iterative modulo-11 algorithm)
+        expect(validatePIB('106006802')).toBe(true);
         expect(validatePIB('100001011')).toBe(true);
-        expect(validatePIB('100003578')).toBe(true);
+        expect(validatePIB('100003574')).toBe(true);
       });
 
       it('should validate PIB with checksum 0 (when calculated checksum is 11)', () => {
@@ -45,9 +45,9 @@ describe('Position Service Validators', () => {
 
     describe('Invalid PIB Numbers', () => {
       it('should reject PIB with wrong checksum', () => {
-        expect(validatePIB('106006802')).toBe(false); // Last digit wrong
-        expect(validatePIB('100001012')).toBe(false);
-        expect(validatePIB('100003579')).toBe(false);
+        expect(validatePIB('106006801')).toBe(false); // Last digit wrong (should be 2)
+        expect(validatePIB('100001012')).toBe(false); // Should be 1
+        expect(validatePIB('100003575')).toBe(false); // Should be 4
       });
 
       it('should reject PIB with wrong length', () => {
@@ -75,43 +75,20 @@ describe('Position Service Validators', () => {
 
     describe('PIB Checksum Algorithm', () => {
       it('should correctly calculate modulo-11 checksum', () => {
-        // Algorithm: checksum = 11 - ((d1*7 + d2*6 + d3*5 + ... + d8*2) mod 11)
-        // For PIB 106006801:
-        // Sum = 1*7 + 0*6 + 6*5 + 0*4 + 0*3 + 6*2 + 8*1 + 0*0 = 7+0+30+0+0+12+8+0 = 57
-        // 57 mod 11 = 2
-        // 11 - 2 = 9... wait that's not 1
-
-        // Let me use the actual multipliers: 7,6,5,4,3,2 for first 6, then different
-        // Actually the algorithm is: positions multiply by (7-i) where i is 0-7
-        // d1*7 + d2*6 + d3*5 + d4*4 + d5*3 + d6*2 + d7*1 + d8*0
-        // NO wait, it's (7-0), (7-1), (7-2)... = 7,6,5,4,3,2,1,0
-
-        // For 106006801:
-        // 1*7 + 0*6 + 6*5 + 0*4 + 0*3 + 6*2 + 8*1 + 0*0 = 7+0+30+0+0+12+8+0 = 57
-        // Hmm, that's still 57... let me check the implementation again
-
-        // Looking at the code: sum += digits[i] * (7 - i);
-        // i=0: digits[0] * 7 = 1 * 7 = 7
-        // i=1: digits[1] * 6 = 0 * 6 = 0
-        // i=2: digits[2] * 5 = 6 * 5 = 30
-        // i=3: digits[3] * 4 = 0 * 4 = 0
-        // i=4: digits[4] * 3 = 0 * 3 = 0
-        // i=5: digits[5] * 2 = 6 * 2 = 12
-        // i=6: digits[6] * 1 = 8 * 1 = 8
-        // i=7: digits[7] * 0 = 0 * 0 = 0
-        // Sum = 57
-        // 57 % 11 = 2
-        // 11 - 2 = 9
-        // But checksum is 1... there must be a different algorithm
-
-        // Let me just test that the validator works correctly
-        expect(validatePIB('106006801')).toBe(true); // Known valid
+        // Iterative modulo-11 algorithm (per Poreska uprava RS):
+        // 1. Initialize sum = 10
+        // 2. For each of first 8 digits:
+        //    sum = (sum + digit) % 10
+        //    sum = (sum === 0 ? 10 : sum) * 2 % 11
+        // 3. Checksum = (11 - sum) % 10
+        expect(validatePIB('106006802')).toBe(true); // Known valid
+        expect(validatePIB('115190346')).toBe(true); // NKNet Consulting - known valid
       });
     });
 
     describe('validatePIBOrThrow', () => {
       it('should not throw for valid PIB', () => {
-        expect(() => validatePIBOrThrow('106006801')).not.toThrow();
+        expect(() => validatePIBOrThrow('106006802')).not.toThrow();
       });
 
       it('should throw Serbian error message for invalid PIB', () => {
@@ -169,9 +146,9 @@ describe('Position Service Validators', () => {
     describe('Valid JMBG Numbers', () => {
       it('should validate correct JMBG with valid date and checksum', () => {
         // Format: DDMMYYYRRBBBC
-        // Example: 0101995123456 = 01.01.1995, region 12, birth order 345, checksum 6
-        expect(validateJMBG('0101995123456')).toBe(true);
-        expect(validateJMBG('1512990070007')).toBe(true);
+        // Example: 0101995123453 = 01.01.1995, region 12, birth order 345, checksum 3
+        expect(validateJMBG('0101995123453')).toBe(true);
+        expect(validateJMBG('1512990070002')).toBe(true);
       });
     });
 
@@ -200,7 +177,7 @@ describe('Position Service Validators', () => {
 
     describe('validateJMBGOrThrow', () => {
       it('should not throw for valid JMBG', () => {
-        expect(() => validateJMBGOrThrow('0101995123456')).not.toThrow();
+        expect(() => validateJMBGOrThrow('0101995123453')).not.toThrow();
       });
 
       it('should throw Serbian error message for invalid JMBG', () => {
@@ -248,7 +225,7 @@ describe('Position Service Validators', () => {
   describe('Integration: Company Data Validation', () => {
     it('should validate complete company registration data', () => {
       const companyData = {
-        pib: '106006801',
+        pib: '106006802',
         activityCode: '4520',
         maticniBroj: '12345678',
         postalCode: '11000',

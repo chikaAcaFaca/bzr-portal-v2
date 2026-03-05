@@ -4,10 +4,13 @@ import { router, publicProcedure, protectedProcedure, companyOwnerProcedure } fr
 import { db } from '../../db';
 import { companyDirectory } from '../../db/schema/company-directory';
 import { companies } from '../../db/schema/companies';
+import { agencies } from '../../db/schema/agencies';
+import { getPricingTier } from '../../db/schema/subscriptions';
 import { eq, ilike, and, sql, desc, isNull, isNotNull } from 'drizzle-orm';
 import { enrichCompany } from '../../services/apr-enrichment.service';
+import { enrichFromCompanyWall } from '../../services/companywall-enrichment.service';
 import { randomBytes } from 'crypto';
-import { sendCompanyInviteEmail } from '../../services/email.service';
+import { sendCompanyInviteEmail, sendOnboardingNotificationEmail, sendNurtureEmail } from '../../services/email.service';
 
 /**
  * Normalize search text for Serbian: Cyrillic→Latin, remove diacritics, lowercase.
@@ -173,10 +176,17 @@ export const companyDirectoryRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Firma nije pronadjena u direktorijumu' });
       }
 
-      // Trigger enrichment if stale (async, don't block response)
+      // Trigger APR enrichment if stale (async, don't block response)
       if (!company.enrichedAt || (Date.now() - company.enrichedAt.getTime()) > 30 * 24 * 60 * 60 * 1000) {
         enrichCompany(input.maticniBroj).catch((err) => {
-          console.error(`Enrichment failed for ${input.maticniBroj}:`, err);
+          console.error(`APR enrichment failed for ${input.maticniBroj}:`, err);
+        });
+      }
+
+      // Trigger CompanyWall enrichment if stale (async, don't block response)
+      if (!company.cwEnrichedAt || (Date.now() - company.cwEnrichedAt.getTime()) > 90 * 24 * 60 * 60 * 1000) {
+        enrichFromCompanyWall(input.maticniBroj).catch((err) => {
+          console.error(`CompanyWall enrichment failed for ${input.maticniBroj}:`, err);
         });
       }
 
@@ -281,6 +291,12 @@ export const companyDirectoryRouter = router({
           usluge: companyDirectory.usluge,
           logoUrl: companyDirectory.logoUrl,
           claimedAt: companyDirectory.claimedAt,
+          // CompanyWall financial data (public)
+          prihod: companyDirectory.prihod,
+          rashod: companyDirectory.rashod,
+          dobitGubitak: companyDirectory.dobitGubitak,
+          kapital: companyDirectory.kapital,
+          companyWallUrl: companyDirectory.companyWallUrl,
           // Contact info only if flagged as visible
           telefonVidljiv: companyDirectory.telefonVidljiv,
           emailVidljiv: companyDirectory.emailVidljiv,
@@ -575,5 +591,316 @@ export const companyDirectoryRouter = router({
       }
 
       return { sent, total: toInvite.length, errors };
+    }),
+
+  // ============================================
+  // CompanyWall Enrichment
+  // ============================================
+
+  /**
+   * Manually trigger CompanyWall enrichment for a company
+   */
+  enrichFromCompanyWall: protectedProcedure
+    .input(z.object({ maticniBroj: z.string().min(1).max(8) }))
+    .mutation(async ({ input }) => {
+      const result = await enrichFromCompanyWall(input.maticniBroj);
+      if (!result) {
+        return { enriched: false, message: 'Firma nije pronadjena ili su podaci svezi' };
+      }
+      return { enriched: true, data: result };
+    }),
+
+  // ============================================
+  // Agency Onboard Client Workflow
+  // ============================================
+
+  /**
+   * Agency onboards a client company from the directory
+   * Creates company record, triggers enrichment, sends notification
+   */
+  agencyOnboardClient: protectedProcedure
+    .input(z.object({
+      maticniBroj: z.string().min(1).max(8),
+      sendNotification: z.boolean().default(true),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const agencyId = ctx.agencyId;
+      if (!agencyId) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Samo agencije mogu preuzimati klijente' });
+      }
+
+      // Fetch directory entry
+      const [dirEntry] = await db
+        .select()
+        .from(companyDirectory)
+        .where(eq(companyDirectory.maticniBroj, input.maticniBroj))
+        .limit(1);
+
+      if (!dirEntry) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Firma nije pronadjena u direktorijumu' });
+      }
+
+      // Check not already claimed/onboarded
+      if (dirEntry.bzrAgencijaId) {
+        throw new TRPCError({ code: 'CONFLICT', message: 'Ova firma je vec preuzeta od strane agencije' });
+      }
+
+      // Trigger enrichment (await both for onboarding)
+      const [aprResult, cwResult] = await Promise.allSettled([
+        enrichCompany(input.maticniBroj),
+        enrichFromCompanyWall(input.maticniBroj),
+      ]);
+
+      // Re-fetch after enrichment to get updated data
+      const [enrichedEntry] = await db
+        .select()
+        .from(companyDirectory)
+        .where(eq(companyDirectory.maticniBroj, input.maticniBroj))
+        .limit(1);
+
+      const entry = enrichedEntry || dirEntry;
+
+      // Get agency name
+      const [agency] = await db
+        .select({ name: agencies.name })
+        .from(agencies)
+        .where(eq(agencies.id, agencyId))
+        .limit(1);
+
+      const agencyName = agency?.name || 'BZR Agencija';
+
+      // Determine pricing tier
+      const employeeCount = entry.brojZaposlenih || 1;
+      const pricingTier = getPricingTier(employeeCount);
+
+      // Create company record
+      const [newCompany] = await db
+        .insert(companies)
+        .values({
+          name: entry.poslovnoIme.trim(),
+          pib: entry.maticniBroj, // PIB might not be available; use maticniBroj as fallback
+          maticniBroj: entry.maticniBroj,
+          activityCode: entry.sifraDelatnosti || '0000',
+          address: entry.adresa || entry.opstina || 'N/A',
+          city: entry.grad || entry.opstina || null,
+          phone: entry.telefon || null,
+          email: entry.email || null,
+          director: entry.kontaktOsoba || entry.imeVlasnika
+            ? `${entry.imeVlasnika || ''} ${entry.prezimeVlasnika || ''}`.trim()
+            : 'N/A',
+          bzrResponsiblePerson: 'N/A',
+          employeeCount,
+          agencyId,
+          assignedAgentId: ctx.agencyUserId || null,
+          pricingTier,
+          accountTier: 'trial',
+          trialExpiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .returning();
+
+      // Update directory entry with agency relationship
+      await db
+        .update(companyDirectory)
+        .set({
+          bzrAgencijaId: agencyId,
+          bzrAgencijaNaziv: agencyName,
+          bzrSaradnja: 'active',
+          updatedAt: new Date(),
+        })
+        .where(eq(companyDirectory.maticniBroj, input.maticniBroj));
+
+      // Send notification email if requested and email exists
+      if (input.sendNotification && entry.email) {
+        sendOnboardingNotificationEmail({
+          companyEmail: entry.email,
+          agencyName,
+          companyName: entry.poslovnoIme.trim(),
+          maticniBroj: entry.maticniBroj,
+        }).catch((err) => {
+          console.error(`Onboarding notification email failed for ${entry.maticniBroj}:`, err);
+        });
+      }
+
+      return {
+        company: newCompany,
+        directoryEntry: entry,
+        enrichmentResults: {
+          apr: aprResult.status === 'fulfilled' ? 'success' : 'failed',
+          companyWall: cwResult.status === 'fulfilled' ? 'success' : 'failed',
+        },
+      };
+    }),
+
+  // ============================================
+  // Email Nurture Sequence
+  // ============================================
+
+  /**
+   * Process nurture email batch - sends next stage emails to eligible companies
+   * Designed to be called daily by admin or cron job
+   */
+  processNurture: protectedProcedure.mutation(async ({ ctx }) => {
+    if (!ctx.agencyId && !ctx.userId) {
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'Nemate dozvolu' });
+    }
+
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+
+    // Find eligible companies for nurture
+    const eligible = await db
+      .select({
+        id: companyDirectory.id,
+        maticniBroj: companyDirectory.maticniBroj,
+        poslovnoIme: companyDirectory.poslovnoIme,
+        email: companyDirectory.email,
+        inviteToken: companyDirectory.inviteToken,
+        nurtureStage: companyDirectory.nurtureStage,
+        nurtureLastEmailAt: companyDirectory.nurtureLastEmailAt,
+      })
+      .from(companyDirectory)
+      .where(and(
+        eq(companyDirectory.nurtureOptedOut, false),
+        isNotNull(companyDirectory.email),
+        sql`${companyDirectory.nurtureStage} < 5`,
+        sql`(${companyDirectory.nurtureLastEmailAt} IS NULL OR ${companyDirectory.nurtureLastEmailAt} <= ${threeDaysAgo})`,
+      ))
+      .limit(100);
+
+    let processed = 0;
+    const errors: string[] = [];
+
+    for (const company of eligible) {
+      if (!company.email) continue;
+
+      const nextStage = (company.nurtureStage || 0) + 1;
+
+      // Generate invite token if missing
+      let token = company.inviteToken;
+      if (!token) {
+        token = randomBytes(32).toString('hex');
+        await db
+          .update(companyDirectory)
+          .set({ inviteToken: token })
+          .where(eq(companyDirectory.id, company.id));
+      }
+
+      try {
+        await sendNurtureEmail({
+          to: company.email,
+          companyName: company.poslovnoIme,
+          maticniBroj: company.maticniBroj,
+          inviteToken: token,
+          stage: nextStage,
+        });
+
+        await db
+          .update(companyDirectory)
+          .set({
+            nurtureStage: nextStage,
+            nurtureLastEmailAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(companyDirectory.id, company.id));
+
+        processed++;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        errors.push(`${company.poslovnoIme} (stage ${nextStage}): ${message}`);
+      }
+    }
+
+    return { processed, errors };
+  }),
+
+  // ============================================
+  // AI Content Generation
+  // ============================================
+
+  /**
+   * Generate a professional company description using AI
+   */
+  generateDescription: companyOwnerProcedure
+    .input(z.object({
+      maticniBroj: z.string().min(1).max(8),
+      language: z.enum(['sr-latin', 'sr-cyrillic']).default('sr-latin'),
+    }))
+    .mutation(async ({ input }) => {
+      // Fetch company data
+      const [company] = await db
+        .select()
+        .from(companyDirectory)
+        .where(eq(companyDirectory.maticniBroj, input.maticniBroj))
+        .limit(1);
+
+      if (!company) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Firma nije pronadjena' });
+      }
+
+      const hasAIProviders =
+        process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.DEEPSEEK_API_KEY;
+
+      if (!hasAIProviders) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'AI nije konfigurisan na serveru' });
+      }
+
+      const languageNote = input.language === 'sr-cyrillic'
+        ? 'na srpskom cirilicnom pismu'
+        : 'na srpskom latinicnom pismu';
+
+      const prompt = `Napisi profesionalni opis firme "${company.poslovnoIme}" iz ${company.opstina || 'Srbije'}. ` +
+        `Delatnost: ${company.sifraDelatnosti || 'nepoznata'}. ` +
+        `Broj zaposlenih: ${company.brojZaposlenih || 'nepoznat'}. ` +
+        `Pravna forma: ${company.pravnaForma || 'nepoznata'}. ` +
+        `Opis treba da bude 2-3 recenice, profesionalan i informativan, ${languageNote}. ` +
+        `Ne koristi fraze poput "sa ponosom" ili "sa zadovoljstvom". Budi koncizan i faktualan.`;
+
+      try {
+        let generatedDescription = '';
+
+        if (process.env.OPENAI_API_KEY) {
+          const { default: OpenAI } = await import('openai');
+          const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+          const completion = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 200,
+            temperature: 0.7,
+          });
+          generatedDescription = completion.choices[0]?.message?.content?.trim() || '';
+        } else if (process.env.ANTHROPIC_API_KEY) {
+          const { default: Anthropic } = await import('@anthropic-ai/sdk');
+          const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+          const message = await anthropic.messages.create({
+            model: 'claude-sonnet-4-5-20250929',
+            max_tokens: 200,
+            messages: [{ role: 'user', content: prompt }],
+          });
+          const textBlock = message.content.find((b: any) => b.type === 'text');
+          generatedDescription = (textBlock as any)?.text?.trim() || '';
+        } else if (process.env.DEEPSEEK_API_KEY) {
+          const { default: OpenAI } = await import('openai');
+          const deepseek = new OpenAI({
+            apiKey: process.env.DEEPSEEK_API_KEY,
+            baseURL: 'https://api.deepseek.com/v1',
+          });
+          const completion = await deepseek.chat.completions.create({
+            model: 'deepseek-chat',
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 200,
+            temperature: 0.7,
+          });
+          generatedDescription = completion.choices[0]?.message?.content?.trim() || '';
+        }
+
+        return { generatedDescription };
+      } catch (error) {
+        console.error('AI description generation failed:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Generisanje opisa nije uspelo. Pokusajte ponovo.',
+        });
+      }
     }),
 });

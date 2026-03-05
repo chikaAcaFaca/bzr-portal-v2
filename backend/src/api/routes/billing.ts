@@ -62,6 +62,7 @@ export const billingRouter = router({
 
   /**
    * Mark invoice as paid (admin/agency only)
+   * Contract gate: company must accept contract before first payment
    */
   markPaid: protectedProcedure
     .input(z.object({
@@ -72,6 +73,23 @@ export const billingRouter = router({
       // Only admins or agency users can mark invoices as paid
       if (!ctx.agencyId && !ctx.userId) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Nemate dozvolu' });
+      }
+
+      // Contract gate: check if the company has accepted the contract
+      const invoice = await getInvoice(input.invoiceId);
+      if (invoice) {
+        const [company] = await db
+          .select({ contractAcceptedAt: companies.contractAcceptedAt })
+          .from(companies)
+          .where(eq(companies.id, invoice.companyId))
+          .limit(1);
+
+        if (company && !company.contractAcceptedAt) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'Ugovor mora biti prihvacen pre placanja. Preusmerite korisnika na /ugovor.',
+          });
+        }
       }
 
       await markAsPaid(input.invoiceId, input.paymentNote);
@@ -206,4 +224,90 @@ export const billingRouter = router({
       await sendInvoiceEmail(input.invoiceId);
       return { success: true };
     }),
+
+  // ============================================
+  // Electronic Contract
+  // ============================================
+
+  /**
+   * Accept the service agreement (electronic contract)
+   */
+  acceptContract: companyOwnerProcedure
+    .input(z.object({
+      contractVersion: z.string().min(1).max(20),
+      accepted: z.boolean(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!input.accepted) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Morate prihvatiti ugovor' });
+      }
+
+      // Check if already accepted this version
+      const [company] = await db
+        .select({
+          contractAcceptedAt: companies.contractAcceptedAt,
+          contractVersion: companies.contractVersion,
+        })
+        .from(companies)
+        .where(eq(companies.id, ctx.companyOwnerId))
+        .limit(1);
+
+      if (!company) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Firma nije pronadjena' });
+      }
+
+      if (company.contractAcceptedAt && company.contractVersion === input.contractVersion) {
+        return { success: true, alreadyAccepted: true, acceptedAt: company.contractAcceptedAt };
+      }
+
+      // Get IP address from request
+      const ipAddress = ctx.req.headers.get('x-forwarded-for')
+        || ctx.req.headers.get('x-real-ip')
+        || 'unknown';
+
+      const now = new Date();
+      await db
+        .update(companies)
+        .set({
+          contractAcceptedAt: now,
+          contractIpAddress: typeof ipAddress === 'string' ? ipAddress.split(',')[0].trim() : 'unknown',
+          contractVersion: input.contractVersion,
+          updatedAt: now,
+        })
+        .where(eq(companies.id, ctx.companyOwnerId));
+
+      return { success: true, alreadyAccepted: false, acceptedAt: now };
+    }),
+
+  /**
+   * Get contract status for current company
+   */
+  contractStatus: companyOwnerProcedure.query(async ({ ctx }) => {
+    const [company] = await db
+      .select({
+        contractAcceptedAt: companies.contractAcceptedAt,
+        contractVersion: companies.contractVersion,
+        name: companies.name,
+        pib: companies.pib,
+        address: companies.address,
+        city: companies.city,
+      })
+      .from(companies)
+      .where(eq(companies.id, ctx.companyOwnerId))
+      .limit(1);
+
+    if (!company) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Firma nije pronadjena' });
+    }
+
+    return {
+      accepted: !!company.contractAcceptedAt,
+      acceptedAt: company.contractAcceptedAt,
+      contractVersion: company.contractVersion,
+      companyName: company.name,
+      companyPib: company.pib,
+      companyAddress: company.address,
+      companyCity: company.city,
+    };
+  }),
 });

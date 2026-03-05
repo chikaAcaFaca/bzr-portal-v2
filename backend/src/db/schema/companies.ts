@@ -67,6 +67,11 @@ export const companies = pgTable('companies', {
   subscriptionPaidUntil: timestamp('subscription_paid_until'),
   lastPaymentAt: timestamp('last_payment_at'),
 
+  // Electronic contract
+  contractAcceptedAt: timestamp('contract_accepted_at'),
+  contractIpAddress: varchar('contract_ip_address', { length: 45 }),
+  contractVersion: varchar('contract_version', { length: 20 }),
+
   // Audit fields
   isDeleted: boolean('is_deleted').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),

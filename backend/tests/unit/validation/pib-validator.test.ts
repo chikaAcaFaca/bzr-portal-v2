@@ -11,7 +11,7 @@ import {
  * Unit Tests for PIB Validator
  *
  * Tests T057a: PIB modulo-11 checksum validation per FR-043b
- * Reference: Serbian Tax Authority PIB validation algorithm
+ * Reference: Serbian Tax Authority PIB validation algorithm (iterative modulo-11)
  */
 
 describe('PIB Validator - Format Validation', () => {
@@ -46,19 +46,18 @@ describe('PIB Validator - Format Validation', () => {
 
 describe('PIB Validator - Control Digit Calculation', () => {
   it('should calculate correct control digit for known valid PIBs', () => {
-    // PIB 100123143: control digit = 3
-    expect(calculatePIBControlDigit('10012314')).toBe(3);
+    // PIB 100123145: control digit = 5
+    expect(calculatePIBControlDigit('10012314')).toBe(5);
 
-    // PIB 101590788: control digit = 8 (corrected)
+    // PIB 101590788: control digit = 8
     expect(calculatePIBControlDigit('10159078')).toBe(8);
 
-    // PIB 100003575: control digit = 5
-    expect(calculatePIBControlDigit('10000357')).toBe(5);
+    // PIB 100003574: control digit = 4
+    expect(calculatePIBControlDigit('10000357')).toBe(4);
   });
 
-  it('should handle control digit = 0 (when 11 - remainder = 11)', () => {
-    // PIB where sum % 11 = 0, so control digit is 0
-    // Example: 1×2 + 0×7 + 0×6 + 0×5 + 0×4 + 0×3 + 0×2 + 9 = 11 % 11 = 0
+  it('should handle control digit = 0', () => {
+    // PIB 100000090: control digit = 0
     const pib = '10000009';
     const controlDigit = calculatePIBControlDigit(pib);
     expect(controlDigit).toBe(0);
@@ -70,48 +69,42 @@ describe('PIB Validator - Control Digit Calculation', () => {
     expect(calculatePIBControlDigit('')).toBe(-1);
   });
 
-  it('should use correct weights [2,7,6,5,4,3,2] + 8th digit', () => {
-    // Test with all 1s: sum = 1×2 + 1×7 + 1×6 + 1×5 + 1×4 + 1×3 + 1×2 + 1 = 2+7+6+5+4+3+2+1 = 30
-    // 30 % 11 = 8
-    // 11 - 8 = 3
-    expect(calculatePIBControlDigit('11111111')).toBe(3);
+  it('should calculate correctly with iterative modulo-11 algorithm', () => {
+    // Test with all 1s: iterative algorithm gives control digit 7
+    expect(calculatePIBControlDigit('11111111')).toBe(7);
   });
 
-  it('should handle PIBs that would result in control digit 10 (invalid)', () => {
-    // Need to find/construct a PIB where 11 - remainder = 10
-    // This means remainder = 1
-    // Sum % 11 = 1, so we need sum ending in ...1 or ...12 or ...23, etc.
-    const testPib = '10101010'; // Construct example
+  it('should handle various PIB prefixes', () => {
+    const testPib = '10101010';
     const controlDigit = calculatePIBControlDigit(testPib);
-
-    // If control digit is -1, it means it would be 10 (invalid)
-    if (controlDigit === -1) {
-      expect(controlDigit).toBe(-1);
-    } else {
-      expect(controlDigit).toBeGreaterThanOrEqual(0);
-      expect(controlDigit).toBeLessThanOrEqual(9);
-    }
+    expect(controlDigit).toBeGreaterThanOrEqual(0);
+    expect(controlDigit).toBeLessThanOrEqual(9);
+    expect(controlDigit).toBe(1);
   });
 });
 
 describe('PIB Validator - Full Validation', () => {
   it('should validate known correct PIBs', () => {
     // Real valid PIBs (publicly known companies)
-    const result1 = validatePIB('100123143'); // Telekom Srbija
+    const result1 = validatePIB('100123145');
     expect(result1.isValid).toBe(true);
     expect(result1.error).toBeUndefined();
 
-    const result2 = validatePIB('101590788'); // NIS (corrected)
+    const result2 = validatePIB('101590788'); // NIS
     expect(result2.isValid).toBe(true);
     expect(result2.error).toBeUndefined();
+
+    const result3 = validatePIB('115190346'); // NKNet Consulting
+    expect(result3.isValid).toBe(true);
+    expect(result3.error).toBeUndefined();
   });
 
   it('should reject PIBs with incorrect checksum', () => {
-    // Valid format, wrong checksum (should be 3, but using 4)
+    // Valid format, wrong checksum (should be 5, but using 4)
     const result = validatePIB('100123144');
     expect(result.isValid).toBe(false);
     expect(result.error).toContain('контролна цифра');
-    expect(result.error).toContain('3'); // Expected
+    expect(result.error).toContain('5'); // Expected
     expect(result.error).toContain('4'); // Provided
   });
 
@@ -123,20 +116,19 @@ describe('PIB Validator - Full Validation', () => {
 
   it('should handle PIB with spaces (strip and validate)', () => {
     // Valid PIB with spaces should still validate
-    const result = validatePIB('100 123 143');
+    const result = validatePIB('100 123 145');
     expect(result.isValid).toBe(true);
   });
 
   it('should handle PIB with dashes (strip and validate)', () => {
-    const result = validatePIB('100-123-143');
+    const result = validatePIB('100-123-145');
     expect(result.isValid).toBe(true);
   });
 
   it('should validate mathematically correct PIBs (even if not real)', () => {
-    // These PIBs are mathematically valid per mod-11 algorithm
-    // Note: Real PIB validation requires checking against Poreska uprava database
-    expect(validatePIB('000000000').isValid).toBe(true); // All zeros with control digit 0
-    expect(validatePIB('111111113').isValid).toBe(true); // All ones with correct control digit 3
+    // These PIBs are mathematically valid per iterative mod-11 algorithm
+    expect(validatePIB('000000003').isValid).toBe(true); // All zeros with control digit 3
+    expect(validatePIB('111111117').isValid).toBe(true); // All ones with correct control digit 7
     expect(validatePIB('999999995').isValid).toBe(true); // All nines with correct control digit 5
   });
 
@@ -149,12 +141,12 @@ describe('PIB Validator - Full Validation', () => {
 
 describe('PIB Validator - Formatting', () => {
   it('should format PIB with spaces (XXX XXX XXX)', () => {
-    expect(formatPIB('100123143')).toBe('100 123 143');
-    expect(formatPIB('101590781')).toBe('101 590 781');
+    expect(formatPIB('100123145')).toBe('100 123 145');
+    expect(formatPIB('101590788')).toBe('101 590 788');
   });
 
   it('should handle already formatted PIB', () => {
-    expect(formatPIB('100 123 143')).toBe('100 123 143');
+    expect(formatPIB('100 123 145')).toBe('100 123 145');
   });
 
   it('should return original if invalid length', () => {
@@ -166,7 +158,7 @@ describe('PIB Validator - Formatting', () => {
 describe('PIB Validator - Test PIB Generation', () => {
   it('should generate valid test PIB from 8 digits', () => {
     const testPib = generateTestPIB('10012314');
-    expect(testPib).toBe('100123143');
+    expect(testPib).toBe('100123145');
 
     // Verify generated PIB is actually valid
     if (testPib) {
@@ -211,22 +203,21 @@ describe('PIB Validator - Edge Cases', () => {
   });
 
   it('should correctly calculate modulo-11 for boundary values', () => {
-    // Test PIB where sum is exactly divisible by 11
-    // Need sum % 11 = 0, which means control digit is 0
-    const pib = '10000009'; // This gives remainder 0
+    // Test PIB where control digit is 0
+    const pib = '10000009';
     const controlDigit = calculatePIBControlDigit(pib);
     expect(controlDigit).toBe(0);
   });
 });
 
 describe('PIB Validator - Real-world Examples', () => {
-  it('should validate Telekom Srbija PIB (100123143)', () => {
-    const result = validatePIB('100123143');
+  it('should validate NKNet Consulting PIB (115190346)', () => {
+    const result = validatePIB('115190346');
     expect(result.isValid).toBe(true);
   });
 
   it('should validate NIS (101590788)', () => {
-    const result = validatePIB('101590788'); // Corrected PIB
+    const result = validatePIB('101590788');
     expect(result.isValid).toBe(true);
   });
 

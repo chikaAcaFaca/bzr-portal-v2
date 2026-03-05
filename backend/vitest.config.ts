@@ -6,6 +6,9 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     setupFiles: ['./tests/setup.ts'],
+    // Integration tests require a local PostgreSQL database (bzr_portal_test)
+    // Run them separately with: npx vitest run tests/integration
+    exclude: ['**/node_modules/**', '**/dist/**', 'tests/integration/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

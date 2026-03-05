@@ -1,28 +1,27 @@
 /**
  * PIB (Poreski Identifikacioni Broj) Validator
  *
- * Implements modulo-11 checksum validation per Serbian tax authority requirements.
- * Algorithm per FR-043b and Pravilnik o poreskoj prijavi.
+ * Implements iterative modulo-11 checksum validation per Serbian tax authority.
+ * Algorithm per FR-043b and Poreska uprava RS.
  *
  * PIB format: 9 digits (XXXXXXXXX)
  * - First 8 digits: identification number
  * - 9th digit: control digit (checksum)
  *
- * Checksum algorithm (modulo-11):
- * 1. Multiply each of first 8 digits by weight (7,6,5,4,3,2,7,6)
- * 2. Sum all products
- * 3. Calculate remainder: sum % 11
- * 4. Control digit = 11 - remainder
- * 5. If control digit is 10, PIB is invalid
- * 6. If control digit is 11, use 0 instead
+ * Checksum algorithm (iterative modulo-11):
+ * 1. Initialize sum = 10
+ * 2. For each of first 8 digits:
+ *    - sum = (sum + digit) mod 10
+ *    - sum = (sum === 0 ? 10 : sum) * 2 mod 11
+ * 3. Control digit = (11 - sum) mod 10
  *
  * Examples:
- * - Valid PIB: 100123143
+ * - Valid PIB: 100001011, 106006802, 115190346
  * - Invalid PIB: 123456789 (wrong checksum)
  *
  * References:
  * - FR-043b: PIB validation requirement
- * - https://www.paragraf.rs/propisi/zakon_o_poreskom_postupku_i_poreskoj_administraciji.html
+ * - https://mladsoft.com/2019/06/04/validacija-pib-mb-i-dr/
  */
 
 export interface PIBValidationResult {
@@ -42,57 +41,32 @@ export function isValidPIBFormat(pib: string): boolean {
 }
 
 /**
- * Calculate PIB control digit using modulo-11 algorithm
+ * Calculate PIB control digit using iterative modulo-11 algorithm
  *
  * Correct Serbian PIB algorithm per Poreska uprava RS:
- * - Weights: [2,7,6,5,4,3,2] for first 7 digits
- * - 8th digit is added to sum without weight
- * - Control digit formula: (11 - (sum % 11)) % 10
+ * 1. Initialize sum = 10
+ * 2. For each of 8 digits: sum = (sum + digit) % 10; sum = (sum === 0 ? 10 : sum) * 2 % 11
+ * 3. Control digit = (11 - sum) % 10
  *
  * @param pib - First 8 digits of PIB
- * @returns Control digit (0-9), or -1 if invalid
+ * @returns Control digit (0-9), or -1 if input invalid
  */
 export function calculatePIBControlDigit(pib: string): number {
-  if (pib.length !== 8) {
+  if (pib.length !== 8 || !/^\d{8}$/.test(pib)) {
     return -1;
   }
 
-  // Correct weights for Serbian PIB validation
-  const weights = [2, 7, 6, 5, 4, 3, 2];
-
-  // Calculate weighted sum (first 7 digits)
-  let sum = 0;
-  for (let i = 0; i < 7; i++) {
-    const digit = parseInt(pib[i] || '0', 10);
-    sum += digit * weights[i]!;
+  let suma = 10;
+  for (let i = 0; i < 8; i++) {
+    suma = (suma + parseInt(pib.charAt(i), 10)) % 10;
+    suma = (suma === 0 ? 10 : suma) * 2 % 11;
   }
 
-  // Add 8th digit without weight
-  sum += parseInt(pib[7] || '0', 10);
-
-  // Calculate control digit
-  const remainder = sum % 11;
-
-  // Special case: if remainder is 0, control digit is 0
-  if (remainder === 0) {
-    return 0;
-  }
-
-  const controlDigit = 11 - remainder;
-
-  // If result is exactly 10, PIB is invalid
-  if (controlDigit === 10) {
-    return -1;
-  }
-
-  return controlDigit;
+  return (11 - suma) % 10;
 }
 
 /**
  * Validate complete PIB (9 digits with checksum)
- *
- * TODO: PIB modulo-11 validation disabled for development/testing
- * IMPORTANT: Re-enable checksum validation before production deployment!
  *
  * @param pib - Full 9-digit PIB
  * @returns Validation result with error message if invalid
@@ -106,17 +80,6 @@ export function validatePIB(pib: string): PIBValidationResult {
     return {
       isValid: false,
       error: 'ПИБ мора бити тачно 9 цифара (формат: XXXXXXXXX)',
-    };
-  }
-
-  // TODO: TEMPORARY - Skip modulo-11 validation for development/testing
-  // Re-enable this before production!
-  const skipChecksumValidation = process.env.NODE_ENV !== 'production';
-
-  if (skipChecksumValidation) {
-    console.warn(`⚠️  PIB checksum validation DISABLED for development. PIB: ${cleanPIB}`);
-    return {
-      isValid: true,
     };
   }
 

@@ -170,6 +170,66 @@ app.post('/api/contact', contactLimiter, async (c) => {
   }
 });
 
+// Nurture email unsubscribe (no auth needed - uses invite token)
+app.get('/api/nurture/unsubscribe', async (c) => {
+  const token = c.req.query('token');
+  if (!token || token.length < 10) {
+    return c.html(`
+      <!DOCTYPE html><html lang="sr-Latn"><head><meta charset="UTF-8"><title>Greska</title></head>
+      <body style="font-family:Arial,sans-serif;max-width:500px;margin:50px auto;text-align:center;">
+        <h2 style="color:#dc2626;">Nevazeci link</h2>
+        <p>Link za odjavu nije ispravan.</p>
+      </body></html>
+    `, 400);
+  }
+
+  try {
+    const { companyDirectory } = await import('./db/schema/company-directory');
+    const { eq } = await import('drizzle-orm');
+
+    const [company] = await db
+      .select({ id: companyDirectory.id, poslovnoIme: companyDirectory.poslovnoIme })
+      .from(companyDirectory)
+      .where(eq(companyDirectory.inviteToken, token))
+      .limit(1);
+
+    if (!company) {
+      return c.html(`
+        <!DOCTYPE html><html lang="sr-Latn"><head><meta charset="UTF-8"><title>Greska</title></head>
+        <body style="font-family:Arial,sans-serif;max-width:500px;margin:50px auto;text-align:center;">
+          <h2 style="color:#dc2626;">Firma nije pronadjena</h2>
+          <p>Ne mozemo da pronadjemo firmu povezanu sa ovim linkom.</p>
+        </body></html>
+      `, 404);
+    }
+
+    await db
+      .update(companyDirectory)
+      .set({ nurtureOptedOut: true, updatedAt: new Date() })
+      .where(eq(companyDirectory.id, company.id));
+
+    return c.html(`
+      <!DOCTYPE html><html lang="sr-Latn"><head><meta charset="UTF-8"><title>Odjava uspesna</title></head>
+      <body style="font-family:Arial,sans-serif;max-width:500px;margin:50px auto;text-align:center;">
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:40px;margin-top:40px;">
+          <h2 style="color:#16a34a;margin-top:0;">Uspesno ste se odjavili</h2>
+          <p style="color:#333;">Necete vise primati email obavestenja od BZR Savetnik platforme.</p>
+          <p style="color:#666;font-size:14px;margin-top:20px;">Ako zelite ponovo da se prijavite, posetite vas profil na platformi.</p>
+        </div>
+      </body></html>
+    `);
+  } catch (error) {
+    console.error('Nurture unsubscribe error:', error);
+    return c.html(`
+      <!DOCTYPE html><html lang="sr-Latn"><head><meta charset="UTF-8"><title>Greska</title></head>
+      <body style="font-family:Arial,sans-serif;max-width:500px;margin:50px auto;text-align:center;">
+        <h2 style="color:#dc2626;">Greska</h2>
+        <p>Doslo je do greske. Pokusajte ponovo.</p>
+      </body></html>
+    `, 500);
+  }
+});
+
 // Static route registration (avoids Hono "matcher already built" error)
 app.route('/api/auth', authRoutes);
 console.log('✅ Auth routes enabled');

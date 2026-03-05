@@ -132,17 +132,25 @@ describe('Email Service', () => {
         .mockRejectedValueOnce(new Error('Failure 2'))
         .mockRejectedValueOnce(new Error('Failure 3'));
 
+      // Catch rejection immediately to prevent unhandled rejection
+      let caughtError: Error | null = null;
       const promise = emailService.sendEmail({
         to: 'fail@example.com',
         subject: 'Fail Test',
         html: '<p>Will fail</p>',
+      }).catch((err: Error) => {
+        caughtError = err;
       });
 
       // Advance through all retries
       await vi.advanceTimersByTimeAsync(1000);
       await vi.advanceTimersByTimeAsync(2000);
+      await vi.advanceTimersByTimeAsync(4000);
 
-      await expect(promise).rejects.toThrow('Email delivery failed');
+      await promise;
+
+      expect(caughtError).not.toBeNull();
+      expect(caughtError!.message).toContain('Email delivery failed');
       expect(mockSendFn).toHaveBeenCalledTimes(3);
 
       vi.useRealTimers();
@@ -186,8 +194,6 @@ describe('Email Service', () => {
 
   describe('sendVerificationEmail() - Serbian Template', () => {
     it('should send verification email with Serbian Cyrillic content', async () => {
-      process.env.FRONTEND_URL = 'https://bzr-portal.com';
-
       mockSendFn.mockResolvedValue({
         data: { id: 'verify-123' },
         error: null,
@@ -195,8 +201,11 @@ describe('Email Service', () => {
 
       const emailId = await emailService.sendVerificationEmail(
         'user@example.com',
-        'token-abc-123',
-        'Марко'
+        {
+          firstName: 'Марко',
+          verificationUrl: 'https://bzr-portal.com/verify-email?token=token-abc-123',
+          expiryHours: 24,
+        }
       );
 
       expect(emailId).toBe('verify-123');
@@ -206,14 +215,11 @@ describe('Email Service', () => {
       expect(call.to).toBe('user@example.com');
       expect(call.subject).toContain('Потврдите вашу имејл адресу'); // Serbian Cyrillic
       expect(call.html).toContain('Добродошли у BZR Portal, Марко!');
-      expect(call.html).toContain('token-abc-123');
       expect(call.html).toContain('https://bzr-portal.com/verify-email?token=token-abc-123');
       expect(call.html).toContain('Потврди имејл адресу'); // Button text
     });
 
-    it('should use default frontend URL if not configured', async () => {
-      delete process.env.FRONTEND_URL;
-
+    it('should include passed verification URL in email', async () => {
       mockSendFn.mockResolvedValue({
         data: { id: 'verify-456' },
         error: null,
@@ -221,8 +227,11 @@ describe('Email Service', () => {
 
       await emailService.sendVerificationEmail(
         'test@example.com',
-        'token-xyz',
-        'Test'
+        {
+          firstName: 'Test',
+          verificationUrl: 'http://localhost:5173/verify-email?token=token-xyz',
+          expiryHours: 24,
+        }
       );
 
       const call = mockSendFn.mock.calls[0][0];
@@ -237,8 +246,11 @@ describe('Email Service', () => {
 
       await emailService.sendVerificationEmail(
         'user@example.com',
-        'token',
-        'User'
+        {
+          firstName: 'User',
+          verificationUrl: 'https://example.com/verify?token=test',
+          expiryHours: 24,
+        }
       );
 
       const call = mockSendFn.mock.calls[0][0];

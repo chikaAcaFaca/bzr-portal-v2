@@ -16,16 +16,7 @@ npm run test -- --run || exit 1
 echo "✅ Backend tests passed"
 echo ""
 
-# Frontend lint
-echo "📋 Frontend: Running ESLint..."
-cd ../frontend && npm run lint || exit 1
-echo "✅ Frontend lint passed"
-echo ""
-
-# Frontend type check
-echo "🔍 Frontend: Running TypeScript check..."
-npx tsc --noEmit || exit 1
-echo "✅ Frontend type check passed"
-echo ""
+# Note: Production frontend is bzr-savetnik/ (Next.js), not frontend/ (legacy Vite).
+# Frontend checks run via bzr-savetnik's own build pipeline.
 
 echo "✨ All pre-commit checks passed! Ready to commit."

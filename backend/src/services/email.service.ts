@@ -575,6 +575,293 @@ export async function sendCompanyInviteEmail(data: {
   return sendEmail({ to: data.to, subject, html });
 }
 
+/**
+ * Send onboarding notification email - notifies a company that an agency has onboarded them
+ */
+export async function sendOnboardingNotificationEmail(data: {
+  companyEmail: string;
+  agencyName: string;
+  companyName: string;
+  maticniBroj: string;
+}): Promise<string> {
+  const frontendUrl = process.env.FRONTEND_URL || 'https://bzr-savetnik.com';
+  const companyPageUrl = `${frontendUrl}/firma/${data.maticniBroj}`;
+  const registerUrl = `${frontendUrl}/registracija?ref=agency&mb=${data.maticniBroj}`;
+
+  const subject = `${data.agencyName} vas je dodala na BZR Savetnik platformu`;
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="sr-Latn">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Dobrodosli na BZR Savetnik</title>
+    </head>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
+      <div style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, #16a34a, #15803d); padding: 30px; text-align: center;">
+          <div style="display: inline-block; background-color: rgba(255,255,255,0.2); border-radius: 8px; padding: 8px 16px;">
+            <span style="color: white; font-weight: bold; font-size: 18px;">BZR Savetnik</span>
+          </div>
+        </div>
+
+        <!-- Content -->
+        <div style="padding: 30px;">
+          <p style="font-size: 16px;">Postovani,</p>
+
+          <p>Agencija <strong>${data.agencyName}</strong> je kreirala BZR profil za vasu firmu <strong>${data.companyName}</strong> na platformi BZR Savetnik.</p>
+
+          <p style="font-weight: 600;">Sta to znaci za vas:</p>
+
+          <ul style="padding-left: 20px; line-height: 2;">
+            <li>Imate besplatnu web stranicu: <a href="${companyPageUrl}" style="color: #16a34a;">${companyPageUrl}</a></li>
+            <li>Mozete pratiti BZR dokumentaciju vase firme</li>
+            <li>Pristupate evidencijama prema novom Pravilniku (2025)</li>
+          </ul>
+
+          <div style="text-align: center; margin: 25px 0;">
+            <a href="${companyPageUrl}"
+               style="background-color: #16a34a; color: white; padding: 14px 40px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 16px;">
+              Pogledajte profil vase firme
+            </a>
+          </div>
+
+          <p style="text-align: center; color: #666; font-size: 14px; margin-top: 20px;">
+            Ako zelite da sami upravljate stranicom, registrujte se besplatno:
+          </p>
+
+          <div style="text-align: center; margin: 15px 0;">
+            <a href="${registerUrl}"
+               style="background-color: #ffffff; color: #16a34a; padding: 12px 30px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 14px; border: 2px solid #16a34a;">
+              Registrujte se
+            </a>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div style="background-color: #f4f4f4; padding: 20px; text-align: center; border-top: 1px solid #eee;">
+          <p style="margin: 0; color: #999; font-size: 12px;">
+            Srdacan pozdrav,<br>
+            <strong>BZR Savetnik tim</strong>
+          </p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  return sendEmail({ to: data.companyEmail, subject, html });
+}
+
+/**
+ * Send nurture email - 5-stage educational sequence about BZR compliance
+ *
+ * Stage 1: Welcome + profile link
+ * Stage 2: Akt o proceni rizika education
+ * Stage 3: New regulations (Pravilnik 2025) - evidence forms
+ * Stage 4: Penalty information
+ * Stage 5: Special offer CTA
+ */
+export async function sendNurtureEmail(data: {
+  to: string;
+  companyName: string;
+  maticniBroj: string;
+  inviteToken: string;
+  stage: number;
+}): Promise<string> {
+  const frontendUrl = process.env.FRONTEND_URL || 'https://bzr-savetnik.com';
+  const companyPageUrl = `${frontendUrl}/firma/${data.maticniBroj}`;
+  const registerUrl = `${frontendUrl}/registracija?ref=nurture&mb=${data.maticniBroj}&token=${data.inviteToken}`;
+  const unsubscribeUrl = `${process.env.BACKEND_URL || 'https://bzr-portal-backend.onrender.com'}/api/nurture/unsubscribe?token=${data.inviteToken}`;
+
+  const templates = getNurtureTemplates(data.companyName, companyPageUrl, registerUrl);
+  const template = templates[data.stage - 1];
+  if (!template) throw new Error(`Invalid nurture stage: ${data.stage}`);
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="sr-Latn">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${template.subject}</title>
+    </head>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
+      <div style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, #16a34a, #15803d); padding: 25px; text-align: center;">
+          <span style="color: white; font-weight: bold; font-size: 18px;">BZR Savetnik</span>
+        </div>
+
+        <!-- Content -->
+        <div style="padding: 30px;">
+          ${template.body}
+
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${template.ctaUrl}"
+               style="background-color: #16a34a; color: white; padding: 14px 40px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 16px;">
+              ${template.ctaText}
+            </a>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div style="background-color: #f4f4f4; padding: 20px; text-align: center; border-top: 1px solid #eee;">
+          <p style="margin: 0; color: #999; font-size: 12px;">
+            Srdacan pozdrav,<br>
+            <strong>BZR Savetnik tim</strong>
+          </p>
+          <p style="margin: 10px 0 0;">
+            <a href="${unsubscribeUrl}" style="color: #bbb; font-size: 11px; text-decoration: underline;">
+              Odjavite se od ovih obavestenja
+            </a>
+          </p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  return sendEmail({ to: data.to, subject: template.subject, html });
+}
+
+function getNurtureTemplates(companyName: string, profileUrl: string, registerUrl: string) {
+  return [
+    // Stage 1: Welcome
+    {
+      subject: `Besplatna BZR stranica za ${companyName}`,
+      body: `
+        <p style="font-size: 16px;">Postovani,</p>
+        <p>Vasa firma <strong>${companyName}</strong> ima besplatnu profesionalnu web stranicu na BZR Savetnik platformi.</p>
+        <p>Na vasoj stranici mozete videti:</p>
+        <ul style="padding-left: 20px; line-height: 2;">
+          <li>Osnovne podatke o firmi iz APR-a</li>
+          <li>BZR status vase firme</li>
+          <li>Finansijske podatke</li>
+        </ul>
+        <p>Pogledajte vas profil i saznajte kako da ga unapredite:</p>
+      `,
+      ctaUrl: profileUrl,
+      ctaText: 'Pogledajte profil firme',
+    },
+    // Stage 2: Akt o proceni rizika
+    {
+      subject: `Da li vasa firma ima Akt o proceni rizika?`,
+      body: `
+        <p style="font-size: 16px;">Postovani,</p>
+        <p>Svaki poslodavac u Srbiji je <strong>zakonski obavezan</strong> da ima Akt o proceni rizika na radnom mestu (Zakon o bezbednosti i zdravlju na radu, clan 13).</p>
+
+        <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 4px;">
+          <p style="margin: 0; font-weight: bold; color: #92400e;">Sta je Akt o proceni rizika?</p>
+          <p style="margin: 10px 0 0; color: #78350f;">Dokument koji identifikuje sve opasnosti i stetnosti na radnim mestima u vasoj firmi, procenjuje nivo rizika i definise mere za njihovo otklanjanje ili smanjenje.</p>
+        </div>
+
+        <p><strong>Ko mora da ima Akt?</strong></p>
+        <ul style="padding-left: 20px; line-height: 2;">
+          <li>Svaka firma koja ima makar 1 zaposlenog</li>
+          <li>Preduzetnici sa zaposlenima</li>
+          <li>Drzavne institucije i javna preduzeca</li>
+        </ul>
+
+        <p style="color: #dc2626;"><strong>Kazna za neposedovanje: od 800.000 do 1.000.000 RSD</strong></p>
+      `,
+      ctaUrl: registerUrl,
+      ctaText: 'Kreirajte Akt besplatno',
+    },
+    // Stage 3: Pravilnik 2025 - new evidence forms
+    {
+      subject: `Nove evidencije (Pravilnik 2025) - Sta morate imati?`,
+      body: `
+        <p style="font-size: 16px;">Postovani,</p>
+        <p>Novi <strong>Pravilnik o evidencijama u oblasti bezbednosti i zdravlja na radu (2025)</strong> propisuje obavezno vodjenje 11 evidencija:</p>
+
+        <ol style="padding-left: 20px; line-height: 2;">
+          <li>Evidencija o radnim mestima sa povecnim rizikom</li>
+          <li>Evidencija o zaposlenima rasporedjenim na radna mesta sa povecnim rizikom</li>
+          <li>Evidencija o povredama na radu</li>
+          <li>Evidencija o profesionalnim oboljenjima</li>
+          <li>Evidencija o bolestima u vezi sa radom</li>
+          <li>Evidencija o zaposlenima osposobljenim za bezbedan rad</li>
+          <li>Evidencija o opasnim materijama</li>
+          <li>Evidencija o izvrsenim ispitivanjima uslova radne okoline</li>
+          <li>Evidencija o izvrsenim pregledima i ispitivanjima opreme za rad</li>
+          <li>Evidencija o lekarskim pregledima zaposlenih</li>
+          <li>Evidencija o sredstvima i opremi za licnu zastitu na radu</li>
+        </ol>
+
+        <p>BZR Savetnik vam omogucava da sve evidencije vodite <strong>elektronski</strong>, u skladu sa novim propisima.</p>
+      `,
+      ctaUrl: registerUrl,
+      ctaText: 'Pocnite sa evidencijama',
+    },
+    // Stage 4: Penalties
+    {
+      subject: `Koliko kosta kazna za BZR neuskladjenost?`,
+      body: `
+        <p style="font-size: 16px;">Postovani,</p>
+        <p>Inspekcija rada moze izreci <strong>visoke kazne</strong> za nepostivanje propisa o bezbednosti i zdravlju na radu:</p>
+
+        <div style="background-color: #fef2f2; border-radius: 8px; padding: 20px; margin: 20px 0;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 8px 0; border-bottom: 1px solid #fecaca;"><strong>Bez Akta o proceni rizika</strong></td>
+              <td style="padding: 8px 0; border-bottom: 1px solid #fecaca; text-align: right; color: #dc2626; font-weight: bold;">800.000 - 1.000.000 RSD</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; border-bottom: 1px solid #fecaca;"><strong>Bez obuke zaposlenih</strong></td>
+              <td style="padding: 8px 0; border-bottom: 1px solid #fecaca; text-align: right; color: #dc2626; font-weight: bold;">800.000 - 1.000.000 RSD</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; border-bottom: 1px solid #fecaca;"><strong>Bez lekarskih pregleda</strong></td>
+              <td style="padding: 8px 0; border-bottom: 1px solid #fecaca; text-align: right; color: #dc2626; font-weight: bold;">400.000 - 800.000 RSD</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0;"><strong>Bez evidencija (Pravilnik 2025)</strong></td>
+              <td style="padding: 8px 0; text-align: right; color: #dc2626; font-weight: bold;">300.000 - 800.000 RSD</td>
+            </tr>
+          </table>
+        </div>
+
+        <p><strong>Ukupno:</strong> Firme bez BZR dokumentacije rizikuju kazne do <span style="color: #dc2626; font-weight: bold;">2.000.000+ RSD</span>.</p>
+
+        <p>BZR Savetnik vam pomaze da budete u potpunosti uskladjeni - vec od <strong>990 RSD mesecno</strong>.</p>
+      `,
+      ctaUrl: registerUrl,
+      ctaText: 'Obezbedite uskladjenost',
+    },
+    // Stage 5: Special offer
+    {
+      subject: `Specijalna ponuda: BZR uskladjenost od 990 RSD/mesecno`,
+      body: `
+        <p style="font-size: 16px;">Postovani,</p>
+        <p>Imamo specijalnu ponudu za vasu firmu <strong>${companyName}</strong>:</p>
+
+        <div style="background: linear-gradient(135deg, #ecfdf5, #d1fae5); border-radius: 12px; padding: 25px; margin: 20px 0; text-align: center;">
+          <p style="margin: 0; font-size: 14px; color: #065f46;">BZR Savetnik pretplata</p>
+          <p style="margin: 10px 0; font-size: 36px; font-weight: bold; color: #047857;">od 990 RSD<span style="font-size: 16px; font-weight: normal;">/mesecno</span></p>
+          <p style="margin: 0; font-size: 13px; color: #065f46;">Godisnja pretplata: platite 10 meseci, koristite 12</p>
+        </div>
+
+        <p style="font-weight: 600;">Sta dobijate:</p>
+        <ul style="padding-left: 20px; line-height: 2;">
+          <li>Akt o proceni rizika - generisanje i azuriranje</li>
+          <li>Svih 11 evidencija prema Pravilniku 2025</li>
+          <li>Profesionalna web stranica firme</li>
+          <li>Povezivanje sa BZR agencijom</li>
+          <li>AI asistent za BZR pitanja</li>
+          <li>Email podrska</li>
+        </ul>
+
+        <p style="color: #059669; font-weight: bold; text-align: center;">Registrujte se danas i dobijte 30 dana besplatnog probnog perioda!</p>
+      `,
+      ctaUrl: registerUrl,
+      ctaText: 'Registrujte se besplatno',
+    },
+  ];
+}
+
 export const emailService = {
   sendEmail,
   sendVerificationEmail,
@@ -585,4 +872,6 @@ export const emailService = {
   sendMessageNotificationEmail,
   sendInvoiceEmail,
   sendCompanyInviteEmail,
+  sendOnboardingNotificationEmail,
+  sendNurtureEmail,
 };

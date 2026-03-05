@@ -61,6 +61,19 @@ export const companyDirectory = pgTable('company_directory', {
   inviteSentAt: timestamp('invite_sent_at'),
   inviteToken: varchar('invite_token', { length: 64 }),
 
+  // CompanyWall financial data
+  prihod: integer('prihod'),              // Annual revenue RSD
+  rashod: integer('rashod'),              // Annual expenses RSD
+  dobitGubitak: integer('dobit_gubitak'), // Profit/loss RSD
+  kapital: integer('kapital'),            // Registered capital RSD
+  companyWallUrl: varchar('company_wall_url', { length: 500 }),
+  cwEnrichedAt: timestamp('cw_enriched_at'), // CompanyWall enrichment timestamp
+
+  // Email nurture sequence
+  nurtureStage: integer('nurture_stage').default(0),
+  nurtureLastEmailAt: timestamp('nurture_last_email_at'),
+  nurtureOptedOut: boolean('nurture_opted_out').default(false),
+
   // Enrichment tracking
   enrichedAt: timestamp('enriched_at'),
   enrichmentSource: varchar('enrichment_source', { length: 50 }),
