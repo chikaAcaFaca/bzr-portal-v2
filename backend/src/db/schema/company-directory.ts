@@ -12,6 +12,7 @@ export const companyDirectory = pgTable('company_directory', {
 
   // APR Core Data
   maticniBroj: varchar('maticni_broj', { length: 8 }).notNull().unique(),
+  pib: varchar('pib', { length: 9 }),  // Serbian tax ID (9 digits)
   poslovnoIme: varchar('poslovno_ime', { length: 500 }).notNull(),
   pravnaForma: varchar('pravna_forma', { length: 255 }),
   sifraDelatnosti: varchar('sifra_delatnosti', { length: 10 }),
@@ -82,6 +83,7 @@ export const companyDirectory = pgTable('company_directory', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => ({
+  pibIdx: index('cd_pib_idx').on(table.pib),
   sifraDelatnostiIdx: index('cd_sifra_delatnosti_idx').on(table.sifraDelatnosti),
   sifraOpstineIdx: index('cd_sifra_opstine_idx').on(table.sifraOpstine),
   opstinaIdx: index('cd_opstina_idx').on(table.opstina),

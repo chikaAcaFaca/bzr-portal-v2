@@ -45,6 +45,9 @@ export * from './news';
 export * from './company-directory';
 export * from './messages';
 
+// Phase 3: Company Posts (Free Presentation)
+export * from './company-posts';
+
 // Phase 3: Evidence Management, Injury Reports & Newsletter
 export * from './evidence-records';
 export * from './injury-reports';

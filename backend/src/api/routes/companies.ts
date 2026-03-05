@@ -5,8 +5,11 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { db } from '../../db';
 import { companies } from '../../db/schema/companies';
+import { companyDirectory } from '../../db/schema/company-directory';
 import { eq, and, ilike, or } from 'drizzle-orm';
 import { getPricingTier, PRICING_TIERS } from '../../db/schema/subscriptions';
+import { enrichCompany } from '../../services/apr-enrichment.service';
+import { enrichFromCompanyWall } from '../../services/companywall-enrichment.service';
 
 /**
  * Companies tRPC Router
@@ -313,19 +316,38 @@ export const companiesRouter = router({
       const trialExpiry = new Date();
       trialExpiry.setDate(trialExpiry.getDate() + 30);
 
+      // Check for directory match by PIB (for auto-population)
+      const [dirEntry] = await db
+        .select({
+          id: companyDirectory.id,
+          maticniBroj: companyDirectory.maticniBroj,
+          sifraDelatnosti: companyDirectory.sifraDelatnosti,
+          adresa: companyDirectory.adresa,
+          grad: companyDirectory.grad,
+          opstina: companyDirectory.opstina,
+          telefon: companyDirectory.telefon,
+          claimedByCompanyId: companyDirectory.claimedByCompanyId,
+        })
+        .from(companyDirectory)
+        .where(eq(companyDirectory.pib, input.pib))
+        .limit(1);
+
       const [company] = await db
         .insert(companies)
         .values({
           name: input.name,
           pib: input.pib,
+          maticniBroj: dirEntry?.maticniBroj || null,
           employeeCount: input.employeeCount,
           firebaseUid,
           ownerEmail: input.email,
           ownerFullName: input.fullName,
           pricingTier: tier,
           tekuciRacun: input.tekuciRacun || null,
-          activityCode: '0000', // Placeholder - to be filled later
-          address: '', // To be filled in settings
+          activityCode: dirEntry?.sifraDelatnosti || '0000',
+          address: dirEntry?.adresa || '',
+          city: dirEntry?.grad || dirEntry?.opstina || null,
+          phone: dirEntry?.telefon || null,
           director: input.fullName,
           bzrResponsiblePerson: '',
           accountTier: 'trial',
@@ -334,12 +356,34 @@ export const companiesRouter = router({
         })
         .returning();
 
+      // Auto-claim directory profile if PIB matches and not already claimed
+      let profileClaimed = false;
+      if (dirEntry && !dirEntry.claimedByCompanyId) {
+        await db.update(companyDirectory).set({
+          claimedAt: new Date(),
+          claimedByCompanyId: company.id,
+          registrovan: true,
+          datumRegistracije: new Date(),
+          updatedAt: new Date(),
+        }).where(eq(companyDirectory.id, dirEntry.id));
+
+        profileClaimed = true;
+
+        // Trigger enrichment (async, non-blocking)
+        if (dirEntry.maticniBroj) {
+          enrichCompany(dirEntry.maticniBroj).catch(console.error);
+          enrichFromCompanyWall(dirEntry.maticniBroj).catch(console.error);
+        }
+      }
+
       return {
         id: company.id,
         name: company.name,
         pib: company.pib,
         pricingTier: company.pricingTier,
         trialExpiryDate: company.trialExpiryDate,
+        profileClaimed,
+        maticniBroj: dirEntry?.maticniBroj || null,
       };
     }),
 

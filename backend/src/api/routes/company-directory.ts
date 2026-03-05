@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { router, publicProcedure, protectedProcedure, companyOwnerProcedure } from '../trpc/builder';
 import { db } from '../../db';
 import { companyDirectory } from '../../db/schema/company-directory';
+import { companyPosts } from '../../db/schema/company-posts';
 import { companies } from '../../db/schema/companies';
 import { agencies } from '../../db/schema/agencies';
 import { getPricingTier } from '../../db/schema/subscriptions';
@@ -64,6 +65,45 @@ const normalizedOpstina = sql`translate(lower(${companyDirectory.opstina}), ${CY
  * Used by agencies for lead generation and for public company profiles.
  */
 export const companyDirectoryRouter = router({
+  /**
+   * Public: Look up company by PIB (9-digit tax ID)
+   * Used during registration for auto-population
+   */
+  lookupByPib: publicProcedure
+    .input(z.object({ pib: z.string().regex(/^[0-9]{9}$/) }))
+    .query(async ({ input }) => {
+      // 1. Check company_directory by pib
+      const [dirEntry] = await db.select({
+        poslovnoIme: companyDirectory.poslovnoIme,
+        maticniBroj: companyDirectory.maticniBroj,
+        opstina: companyDirectory.opstina,
+        grad: companyDirectory.grad,
+        brojZaposlenih: companyDirectory.brojZaposlenih,
+        sifraDelatnosti: companyDirectory.sifraDelatnosti,
+        adresa: companyDirectory.adresa,
+        pravnaForma: companyDirectory.pravnaForma,
+      })
+      .from(companyDirectory)
+      .where(eq(companyDirectory.pib, input.pib))
+      .limit(1);
+
+      if (dirEntry) {
+        return { found: true as const, source: 'directory' as const, ...dirEntry };
+      }
+
+      // 2. Check companies table (already registered)
+      const [existing] = await db.select({ id: companies.id })
+        .from(companies)
+        .where(and(eq(companies.pib, input.pib), eq(companies.isDeleted, false)))
+        .limit(1);
+
+      if (existing) {
+        return { found: true as const, source: 'registered' as const, alreadyRegistered: true as const };
+      }
+
+      return { found: false as const };
+    }),
+
   /**
    * List companies with pagination and filters
    */
@@ -902,5 +942,216 @@ export const companyDirectoryRouter = router({
           message: 'Generisanje opisa nije uspelo. Pokusajte ponovo.',
         });
       }
+    }),
+
+  // ============================================
+  // Company Posts: Blog, Offers, Gallery
+  // ============================================
+
+  /**
+   * Public: List posts for a company profile
+   */
+  listPosts: publicProcedure
+    .input(z.object({
+      maticniBroj: z.string().min(1).max(8),
+      type: z.enum(['blog', 'ponuda', 'galerija']).optional(),
+    }))
+    .query(async ({ input }) => {
+      // Get company directory entry
+      const [dirEntry] = await db
+        .select({ id: companyDirectory.id })
+        .from(companyDirectory)
+        .where(eq(companyDirectory.maticniBroj, input.maticniBroj))
+        .limit(1);
+
+      if (!dirEntry) {
+        return [];
+      }
+
+      const conditions = [
+        eq(companyPosts.companyDirectoryId, dirEntry.id),
+        eq(companyPosts.isPublished, true),
+      ];
+
+      if (input.type) {
+        conditions.push(eq(companyPosts.type, input.type));
+      }
+
+      const posts = await db
+        .select()
+        .from(companyPosts)
+        .where(and(...conditions))
+        .orderBy(desc(companyPosts.sortOrder), desc(companyPosts.createdAt));
+
+      return posts;
+    }),
+
+  /**
+   * Protected: Create a post (company owner only)
+   */
+  createPost: companyOwnerProcedure
+    .input(z.object({
+      type: z.enum(['blog', 'ponuda', 'galerija']),
+      title: z.string().max(500).optional(),
+      content: z.string().max(10000).optional(),
+      imageUrl: z.string().max(500).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const companyId = ctx.companyOwnerId;
+
+      // Find directory entry claimed by this company
+      const [dirEntry] = await db
+        .select({ id: companyDirectory.id })
+        .from(companyDirectory)
+        .where(eq(companyDirectory.claimedByCompanyId, companyId))
+        .limit(1);
+
+      if (!dirEntry) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Nemate preuzetu stranicu firme. Prvo preuzmite profil.',
+        });
+      }
+
+      const [post] = await db
+        .insert(companyPosts)
+        .values({
+          companyDirectoryId: dirEntry.id,
+          type: input.type,
+          title: input.title || null,
+          content: input.content || null,
+          imageUrl: input.imageUrl || null,
+        })
+        .returning();
+
+      return post;
+    }),
+
+  /**
+   * Protected: Update a post (company owner only)
+   */
+  updatePost: companyOwnerProcedure
+    .input(z.object({
+      postId: z.number(),
+      title: z.string().max(500).optional(),
+      content: z.string().max(10000).optional(),
+      imageUrl: z.string().max(500).optional(),
+      isPublished: z.boolean().optional(),
+      sortOrder: z.number().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const companyId = ctx.companyOwnerId;
+
+      // Verify ownership: post belongs to company's claimed directory entry
+      const [dirEntry] = await db
+        .select({ id: companyDirectory.id })
+        .from(companyDirectory)
+        .where(eq(companyDirectory.claimedByCompanyId, companyId))
+        .limit(1);
+
+      if (!dirEntry) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Nemate preuzetu stranicu firme' });
+      }
+
+      // Verify post belongs to this directory entry
+      const [existingPost] = await db
+        .select({ id: companyPosts.id })
+        .from(companyPosts)
+        .where(and(
+          eq(companyPosts.id, input.postId),
+          eq(companyPosts.companyDirectoryId, dirEntry.id),
+        ))
+        .limit(1);
+
+      if (!existingPost) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Post nije pronadjen' });
+      }
+
+      const updateData: Record<string, any> = { updatedAt: new Date() };
+      if (input.title !== undefined) updateData.title = input.title;
+      if (input.content !== undefined) updateData.content = input.content;
+      if (input.imageUrl !== undefined) updateData.imageUrl = input.imageUrl;
+      if (input.isPublished !== undefined) updateData.isPublished = input.isPublished;
+      if (input.sortOrder !== undefined) updateData.sortOrder = input.sortOrder;
+
+      const [updated] = await db
+        .update(companyPosts)
+        .set(updateData)
+        .where(eq(companyPosts.id, input.postId))
+        .returning();
+
+      return updated;
+    }),
+
+  /**
+   * Protected: Delete a post (company owner only)
+   */
+  deletePost: companyOwnerProcedure
+    .input(z.object({ postId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const companyId = ctx.companyOwnerId;
+
+      // Verify ownership
+      const [dirEntry] = await db
+        .select({ id: companyDirectory.id })
+        .from(companyDirectory)
+        .where(eq(companyDirectory.claimedByCompanyId, companyId))
+        .limit(1);
+
+      if (!dirEntry) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Nemate preuzetu stranicu firme' });
+      }
+
+      const [existingPost] = await db
+        .select({ id: companyPosts.id })
+        .from(companyPosts)
+        .where(and(
+          eq(companyPosts.id, input.postId),
+          eq(companyPosts.companyDirectoryId, dirEntry.id),
+        ))
+        .limit(1);
+
+      if (!existingPost) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Post nije pronadjen' });
+      }
+
+      await db.delete(companyPosts).where(eq(companyPosts.id, input.postId));
+
+      return { success: true };
+    }),
+
+  /**
+   * Protected: List own posts (for dashboard management)
+   */
+  myPosts: companyOwnerProcedure
+    .input(z.object({
+      type: z.enum(['blog', 'ponuda', 'galerija']).optional(),
+    }).optional())
+    .query(async ({ input, ctx }) => {
+      const companyId = ctx.companyOwnerId;
+
+      const [dirEntry] = await db
+        .select({ id: companyDirectory.id })
+        .from(companyDirectory)
+        .where(eq(companyDirectory.claimedByCompanyId, companyId))
+        .limit(1);
+
+      if (!dirEntry) {
+        return [];
+      }
+
+      const conditions = [eq(companyPosts.companyDirectoryId, dirEntry.id)];
+
+      if (input?.type) {
+        conditions.push(eq(companyPosts.type, input.type));
+      }
+
+      const posts = await db
+        .select()
+        .from(companyPosts)
+        .where(and(...conditions))
+        .orderBy(desc(companyPosts.sortOrder), desc(companyPosts.createdAt));
+
+      return posts;
     }),
 });

@@ -14,6 +14,7 @@ import { sendContactFormEmail } from './services/email.service';
 import { initFirebaseAdmin } from './lib/firebase-admin';
 import authRoutes from './routes/auth';
 import documentUploadRoutes from './routes/document-upload';
+import companyMediaRoutes from './routes/company-media';
 
 // Initialize Firebase Admin SDK
 initFirebaseAdmin();
@@ -236,6 +237,9 @@ console.log('✅ Auth routes enabled');
 
 app.route('/api/documents', documentUploadRoutes);
 console.log('✅ Document upload routes enabled');
+
+app.route('/api/company-media', companyMediaRoutes);
+console.log('✅ Company media upload routes enabled');
 
 // AI Chat routes (only if AI providers are configured)
 const hasAIProviders =
