@@ -514,6 +514,10 @@ export const companyDirectoryRouter = router({
       z.object({
         kratakOpis: z.string().max(500).optional(),
         usluge: z.string().max(1000).optional(),
+        telefon: z.string().max(100).optional(),
+        email: z.string().max(255).optional(),
+        adresa: z.string().max(500).optional(),
+        webSajt: z.string().max(500).optional(),
         telefonVidljiv: z.boolean().optional(),
         emailVidljiv: z.boolean().optional(),
         kontaktFormAktivna: z.boolean().optional(),
@@ -539,6 +543,10 @@ export const companyDirectoryRouter = router({
       const updateData: Record<string, any> = { updatedAt: new Date() };
       if (input.kratakOpis !== undefined) updateData.kratakOpis = input.kratakOpis;
       if (input.usluge !== undefined) updateData.usluge = input.usluge;
+      if (input.telefon !== undefined) updateData.telefon = input.telefon;
+      if (input.email !== undefined) updateData.email = input.email;
+      if (input.adresa !== undefined) updateData.adresa = input.adresa;
+      if (input.webSajt !== undefined) updateData.webSajt = input.webSajt;
       if (input.telefonVidljiv !== undefined) updateData.telefonVidljiv = input.telefonVidljiv;
       if (input.emailVidljiv !== undefined) updateData.emailVidljiv = input.emailVidljiv;
       if (input.kontaktFormAktivna !== undefined) updateData.kontaktFormAktivna = input.kontaktFormAktivna;
@@ -1364,6 +1372,91 @@ export const companyDirectoryRouter = router({
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: 'Generisanje teksta nije uspelo. Pokusajte ponovo.',
+        });
+      }
+    }),
+
+  /**
+   * AI: Improve existing text (make it more professional, better structured, etc.)
+   * Does NOT count toward monthly post limit - it's editing, not creating.
+   */
+  improveText: companyOwnerProcedure
+    .input(z.object({
+      text: z.string().min(10).max(10000),
+      instruction: z.string().max(500).optional(),
+      type: z.enum(['blog', 'ponuda', 'opis']).default('blog'),
+    }))
+    .mutation(async ({ input }) => {
+      const hasAIProviders =
+        process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.DEEPSEEK_API_KEY;
+
+      if (!hasAIProviders) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'AI nije konfigurisan na serveru' });
+      }
+
+      const typeLabel = input.type === 'ponuda' ? 'ponudu' : input.type === 'opis' ? 'opis firme' : 'blog post';
+      const userInstruction = input.instruction
+        ? `Dodatno uputstvo korisnika: ${input.instruction}\n\n`
+        : '';
+
+      const prompt = `${userInstruction}Poboljsaj sledeci tekst za ${typeLabel}. Tekst treba da bude:
+- Na srpskom latinicnom pismu
+- Profesionalniji i bolje strukturiran
+- Bez frazama kao "sa ponosom", "sa zadovoljstvom", "dragi klijenti"
+- Koncizan ali informativan
+- Zadrzi suštinu i sve činjenice iz originalnog teksta
+
+Originalan tekst:
+"""
+${input.text}
+"""
+
+Vrati SAMO poboljsani tekst, bez objasnjenja ili komentara.`;
+
+      try {
+        let improved = '';
+
+        if (process.env.OPENAI_API_KEY) {
+          const { default: OpenAI } = await import('openai');
+          const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+          const res = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 2000,
+            temperature: 0.5,
+          });
+          improved = res.choices[0]?.message?.content?.trim() || '';
+        } else if (process.env.ANTHROPIC_API_KEY) {
+          const { default: Anthropic } = await import('@anthropic-ai/sdk');
+          const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+          const res = await anthropic.messages.create({
+            model: 'claude-sonnet-4-5-20250929',
+            max_tokens: 2000,
+            messages: [{ role: 'user', content: prompt }],
+          });
+          const block = res.content.find((b: any) => b.type === 'text');
+          improved = (block as any)?.text?.trim() || '';
+        } else if (process.env.DEEPSEEK_API_KEY) {
+          const { default: OpenAI } = await import('openai');
+          const deepseek = new OpenAI({
+            apiKey: process.env.DEEPSEEK_API_KEY,
+            baseURL: 'https://api.deepseek.com/v1',
+          });
+          const res = await deepseek.chat.completions.create({
+            model: 'deepseek-chat',
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 2000,
+            temperature: 0.5,
+          });
+          improved = res.choices[0]?.message?.content?.trim() || '';
+        }
+
+        return { improved };
+      } catch (error) {
+        console.error('AI text improvement failed:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Poboljsanje teksta nije uspelo. Pokusajte ponovo.',
         });
       }
     }),
