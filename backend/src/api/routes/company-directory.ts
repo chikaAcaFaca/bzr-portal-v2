@@ -72,7 +72,17 @@ export const companyDirectoryRouter = router({
   lookupByPib: publicProcedure
     .input(z.object({ pib: z.string().regex(/^[0-9]{9}$/) }))
     .query(async ({ input }) => {
-      // 1. Check company_directory by pib
+      // 1. Check if already claimed in companies table (has firebaseUid = real owner)
+      const [existing] = await db.select({ id: companies.id, firebaseUid: companies.firebaseUid })
+        .from(companies)
+        .where(and(eq(companies.pib, input.pib), eq(companies.isDeleted, false)))
+        .limit(1);
+
+      // Only block if company has a real owner (firebaseUid set)
+      // Agency-created companies without owner can still be claimed
+      const alreadyRegistered = existing ? !!existing.firebaseUid : false;
+
+      // 2. Check company_directory by pib
       const [dirEntry] = await db.select({
         poslovnoIme: companyDirectory.poslovnoIme,
         maticniBroj: companyDirectory.maticniBroj,
@@ -88,17 +98,11 @@ export const companyDirectoryRouter = router({
       .limit(1);
 
       if (dirEntry) {
-        return { found: true as const, source: 'directory' as const, ...dirEntry };
+        return { found: true as const, source: 'directory' as const, alreadyRegistered, ...dirEntry };
       }
 
-      // 2. Check companies table (already registered)
-      const [existing] = await db.select({ id: companies.id })
-        .from(companies)
-        .where(and(eq(companies.pib, input.pib), eq(companies.isDeleted, false)))
-        .limit(1);
-
       if (existing) {
-        return { found: true as const, source: 'registered' as const, alreadyRegistered: true as const };
+        return { found: true as const, source: 'registered' as const, alreadyRegistered };
       }
 
       return { found: false as const };
