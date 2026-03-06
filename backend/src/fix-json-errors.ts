@@ -31,7 +31,7 @@ for (const filename of files) {
       console.log(`   "${content.substring(Math.max(0, pos - 50), pos + 50)}"`);
 
       // Try to find and fix common issues
-      let fixed = content;
+      const fixed = content;
 
       // Fix unescaped quotes in Serbian text (common with „ and ")
       // This is a simple fix - may need manual adjustment

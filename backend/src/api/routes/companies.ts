@@ -298,16 +298,63 @@ export const companiesRouter = router({
 
       // Check for duplicate PIB
       const [existingPib] = await db
-        .select({ id: companies.id })
+        .select({ id: companies.id, firebaseUid: companies.firebaseUid })
         .from(companies)
         .where(and(eq(companies.pib, input.pib), eq(companies.isDeleted, false)))
         .limit(1);
 
       if (existingPib) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'Firma sa ovim PIB-om vec postoji',
-        });
+        if (existingPib.firebaseUid) {
+          // Already claimed by another user
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'Firma sa ovim PIB-om vec postoji',
+          });
+        }
+
+        // Company exists but no owner (agency-created) → claim it
+        await db.update(companies).set({
+          firebaseUid,
+          ownerEmail: input.email,
+          ownerFullName: input.fullName,
+          name: input.name,
+          employeeCount: input.employeeCount,
+          tekuciRacun: input.tekuciRacun || null,
+          updatedAt: new Date(),
+        }).where(eq(companies.id, existingPib.id));
+
+        // Auto-claim directory profile + trigger enrichment
+        const [dirEntry] = await db
+          .select({ id: companyDirectory.id, maticniBroj: companyDirectory.maticniBroj, claimedByCompanyId: companyDirectory.claimedByCompanyId })
+          .from(companyDirectory)
+          .where(eq(companyDirectory.pib, input.pib))
+          .limit(1);
+
+        let profileClaimed = false;
+        if (dirEntry && !dirEntry.claimedByCompanyId) {
+          await db.update(companyDirectory).set({
+            claimedAt: new Date(),
+            claimedByCompanyId: existingPib.id,
+            registrovan: true,
+            datumRegistracije: new Date(),
+            updatedAt: new Date(),
+          }).where(eq(companyDirectory.id, dirEntry.id));
+          profileClaimed = true;
+          if (dirEntry.maticniBroj) {
+            enrichCompany(dirEntry.maticniBroj).catch(console.error);
+            enrichFromCompanyWall(dirEntry.maticniBroj).catch(console.error);
+          }
+        }
+
+        return {
+          id: existingPib.id,
+          name: input.name,
+          pib: input.pib,
+          pricingTier: null,
+          trialExpiryDate: null,
+          profileClaimed,
+          maticniBroj: dirEntry?.maticniBroj || null,
+        };
       }
 
       const tier = getPricingTier(input.employeeCount);

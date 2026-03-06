@@ -270,7 +270,7 @@ async function processFullDocument(pdfPath: string) {
     processingComplete: false,
   };
 
-  let totalCost = 0;
+  const totalCost = 0;
 
   // 3. Obradi svaki chunk sa DeepSeek-om
   for (let i = 0; i < chunks.length; i++) {

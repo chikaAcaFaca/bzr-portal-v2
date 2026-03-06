@@ -28,7 +28,7 @@ describe('Auth Token Validation Integration Tests (T027)', () => {
   };
 
   let testUserId: string;
-  let testCompanyId: string | null = null;
+  const testCompanyId: string | null = null;
   let validAccessToken: string;
   let validRefreshToken: string;
   let sessionId: string;

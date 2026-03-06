@@ -7,7 +7,7 @@ import { companyPosts } from '../../db/schema/company-posts';
 import { companies } from '../../db/schema/companies';
 import { agencies } from '../../db/schema/agencies';
 import { getPricingTier } from '../../db/schema/subscriptions';
-import { eq, ilike, and, sql, desc, isNull, isNotNull } from 'drizzle-orm';
+import { eq, ilike, and, sql, desc, gte, isNull, isNotNull } from 'drizzle-orm';
 import { enrichCompany } from '../../services/apr-enrichment.service';
 import { enrichFromCompanyWall } from '../../services/companywall-enrichment.service';
 import { randomBytes } from 'crypto';
@@ -1013,6 +1013,26 @@ export const companyDirectoryRouter = router({
         });
       }
 
+      // Check monthly post limit (5 free per month)
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+
+      const [monthlyCount] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(companyPosts)
+        .where(and(
+          eq(companyPosts.companyDirectoryId, dirEntry.id),
+          gte(companyPosts.createdAt, startOfMonth),
+        ));
+
+      if ((monthlyCount?.count ?? 0) >= 5) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Dostigli ste mesecni limit od 5 objava. Pokusajte ponovo sledeceg meseca.',
+        });
+      }
+
       const [post] = await db
         .insert(companyPosts)
         .values({
@@ -1137,7 +1157,7 @@ export const companyDirectoryRouter = router({
         .limit(1);
 
       if (!dirEntry) {
-        return [];
+        return { posts: [], postsRemaining: 5 };
       }
 
       const conditions = [eq(companyPosts.companyDirectoryId, dirEntry.id)];
@@ -1152,6 +1172,195 @@ export const companyDirectoryRouter = router({
         .where(and(...conditions))
         .orderBy(desc(companyPosts.sortOrder), desc(companyPosts.createdAt));
 
-      return posts;
+      // Count posts this month for remaining limit
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+
+      const [monthlyCount] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(companyPosts)
+        .where(and(
+          eq(companyPosts.companyDirectoryId, dirEntry.id),
+          gte(companyPosts.createdAt, startOfMonth),
+        ));
+
+      const postsRemaining = Math.max(0, 5 - (monthlyCount?.count ?? 0));
+
+      return { posts, postsRemaining };
+    }),
+
+  /**
+   * AI Blog/Offer Content Generation
+   * Generates professional content from a topic using AI (OpenAI → Anthropic → DeepSeek fallback)
+   */
+  generatePostContent: companyOwnerProcedure
+    .input(z.object({
+      topic: z.string().min(3).max(500),
+      type: z.enum(['blog', 'ponuda']).default('blog'),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const companyId = ctx.companyOwnerId;
+
+      const hasAIProviders =
+        process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.DEEPSEEK_API_KEY;
+
+      if (!hasAIProviders) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'AI nije konfigurisan na serveru' });
+      }
+
+      // Get company data for context
+      const [company] = await db
+        .select({ id: companies.id, name: companies.name, pib: companies.pib })
+        .from(companies)
+        .where(eq(companies.id, companyId))
+        .limit(1);
+
+      const [dirEntry] = await db
+        .select({
+          id: companyDirectory.id,
+          poslovnoIme: companyDirectory.poslovnoIme,
+          sifraDelatnosti: companyDirectory.sifraDelatnosti,
+          opstina: companyDirectory.opstina,
+          kratakOpis: companyDirectory.kratakOpis,
+        })
+        .from(companyDirectory)
+        .where(eq(companyDirectory.claimedByCompanyId, companyId))
+        .limit(1);
+
+      // Check monthly AI generation limit (5 per month)
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+
+      if (dirEntry) {
+        const [monthlyCount] = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(companyPosts)
+          .where(and(
+            eq(companyPosts.companyDirectoryId, dirEntry.id),
+            gte(companyPosts.createdAt, startOfMonth),
+          ));
+
+        if ((monthlyCount?.count ?? 0) >= 5) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'Dostigli ste mesecni limit od 5 objava. Pokusajte ponovo sledeceg meseca.',
+          });
+        }
+      }
+
+      const companyName = dirEntry?.poslovnoIme || company?.name || 'Firma';
+      const delatnost = dirEntry?.sifraDelatnosti || '';
+      const opstina = dirEntry?.opstina || '';
+      const kratakOpis = dirEntry?.kratakOpis || '';
+
+      const contentPrompt = input.type === 'blog'
+        ? `Napisi profesionalan blog post za firmu "${companyName}" iz ${opstina || 'Srbije'}.
+           Delatnost firme: ${delatnost || 'razna'}.
+           ${kratakOpis ? `O firmi: ${kratakOpis}` : ''}
+           Tema blog posta: "${input.topic}"
+
+           Blog post treba da bude:
+           - Na srpskom latinicnom pismu
+           - 3-5 pasusa, profesionalan i informativan
+           - Koristan za citaoce i potencijalne klijente
+           - Ne koristi fraze "sa ponosom" ili "sa zadovoljstvom"
+           - Budi koncizan ali detaljan
+
+           Vrati SAMO tekst blog posta, bez naslova (naslov ce se posebno generisati).`
+        : `Napisi privlacnu ponudu za firmu "${companyName}" iz ${opstina || 'Srbije'}.
+           Delatnost: ${delatnost || 'razna'}.
+           Tema ponude: "${input.topic}"
+
+           Ponuda treba da bude kratka (2-3 recenice), privlacna i profesionalna na srpskom latinicnom pismu.`;
+
+      const titlePrompt = `Predlozi kratak, privlacan naslov za ${input.type === 'blog' ? 'blog post' : 'ponudu'} na temu "${input.topic}" za firmu "${companyName}". Samo naslov, bez navodnika.`;
+
+      const maxTokensContent = input.type === 'blog' ? 1000 : 200;
+
+      try {
+        let generatedContent = '';
+        let generatedTitle = '';
+
+        if (process.env.OPENAI_API_KEY) {
+          const { default: OpenAI } = await import('openai');
+          const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+          const [contentRes, titleRes] = await Promise.all([
+            openai.chat.completions.create({
+              model: 'gpt-4o-mini',
+              messages: [{ role: 'user', content: contentPrompt }],
+              max_tokens: maxTokensContent,
+              temperature: 0.7,
+            }),
+            openai.chat.completions.create({
+              model: 'gpt-4o-mini',
+              messages: [{ role: 'user', content: titlePrompt }],
+              max_tokens: 50,
+              temperature: 0.7,
+            }),
+          ]);
+
+          generatedContent = contentRes.choices[0]?.message?.content?.trim() || '';
+          generatedTitle = titleRes.choices[0]?.message?.content?.trim() || '';
+        } else if (process.env.ANTHROPIC_API_KEY) {
+          const { default: Anthropic } = await import('@anthropic-ai/sdk');
+          const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+          const [contentRes, titleRes] = await Promise.all([
+            anthropic.messages.create({
+              model: 'claude-sonnet-4-5-20250929',
+              max_tokens: maxTokensContent,
+              messages: [{ role: 'user', content: contentPrompt }],
+            }),
+            anthropic.messages.create({
+              model: 'claude-sonnet-4-5-20250929',
+              max_tokens: 50,
+              messages: [{ role: 'user', content: titlePrompt }],
+            }),
+          ]);
+
+          const contentBlock = contentRes.content.find((b: any) => b.type === 'text');
+          generatedContent = (contentBlock as any)?.text?.trim() || '';
+          const titleBlock = titleRes.content.find((b: any) => b.type === 'text');
+          generatedTitle = (titleBlock as any)?.text?.trim() || '';
+        } else if (process.env.DEEPSEEK_API_KEY) {
+          const { default: OpenAI } = await import('openai');
+          const deepseek = new OpenAI({
+            apiKey: process.env.DEEPSEEK_API_KEY,
+            baseURL: 'https://api.deepseek.com/v1',
+          });
+
+          const [contentRes, titleRes] = await Promise.all([
+            deepseek.chat.completions.create({
+              model: 'deepseek-chat',
+              messages: [{ role: 'user', content: contentPrompt }],
+              max_tokens: maxTokensContent,
+              temperature: 0.7,
+            }),
+            deepseek.chat.completions.create({
+              model: 'deepseek-chat',
+              messages: [{ role: 'user', content: titlePrompt }],
+              max_tokens: 50,
+              temperature: 0.7,
+            }),
+          ]);
+
+          generatedContent = contentRes.choices[0]?.message?.content?.trim() || '';
+          generatedTitle = titleRes.choices[0]?.message?.content?.trim() || '';
+        }
+
+        return {
+          title: generatedTitle,
+          content: generatedContent,
+        };
+      } catch (error) {
+        console.error('AI post content generation failed:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Generisanje teksta nije uspelo. Pokusajte ponovo.',
+        });
+      }
     }),
 });
