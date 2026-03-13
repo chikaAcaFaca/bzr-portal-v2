@@ -10,6 +10,8 @@ import { getPricingTier } from '../../db/schema/subscriptions';
 import { eq, ilike, and, sql, desc, gte, isNull, isNotNull } from 'drizzle-orm';
 import { enrichCompany } from '../../services/apr-enrichment.service';
 import { enrichFromCompanyWall } from '../../services/companywall-enrichment.service';
+import { generateCompanyDescription, generateMetaDescription } from '../../services/company-description.service';
+import { getCompanyImageUrls } from '../../services/company-images.service';
 import { randomBytes } from 'crypto';
 import { sendCompanyInviteEmail, sendOnboardingNotificationEmail, sendNurtureEmail } from '../../services/email.service';
 
@@ -391,12 +393,41 @@ export const companyDirectoryRouter = router({
         );
       }
 
+      // Generate SEO description and image URLs
+      const descriptionData = {
+        maticniBroj: company.maticniBroj,
+        pib: company.pib,
+        poslovnoIme: company.poslovnoIme,
+        pravnaForma: company.pravnaForma,
+        sifraDelatnosti: company.sifraDelatnosti,
+        opstina: company.opstina,
+        grad: company.grad,
+        adresa: company.adresa,
+        datumOsnivanja: company.datumOsnivanja,
+        status: company.status,
+        brojZaposlenih: company.brojZaposlenih ? Number(company.brojZaposlenih) : null,
+        prihod: company.prihod ? Number(company.prihod) : null,
+        kapital: company.kapital ? Number(company.kapital) : null,
+      };
+
+      const imageUrls = getCompanyImageUrls({
+        adresa: company.adresa,
+        grad: company.grad,
+        opstina: company.opstina,
+        postanskiBroj: company.postanskiBroj,
+      });
+
       // Mask contact info if not flagged as visible
       return {
         ...company,
         telefon: company.telefonVidljiv ? company.telefon : null,
         email: company.emailVidljiv ? company.email : null,
         cwEnrichedAt: undefined, // don't expose internal timestamp
+        // SEO fields
+        seoDescription: company.kratakOpis || generateCompanyDescription(descriptionData),
+        seoMetaDescription: generateMetaDescription(descriptionData),
+        // Image/map URLs
+        ...imageUrls,
       };
     }),
 
