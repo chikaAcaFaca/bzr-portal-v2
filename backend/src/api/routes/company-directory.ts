@@ -257,10 +257,18 @@ export const companyDirectoryRouter = router({
       const conditions = [];
 
       if (filters.search) {
-        const normalized = normalizeForSearch(filters.search);
-        if (normalized) {
-          // Search normalized column (handles Cyrillic input, diacritics, ASCII-only)
-          conditions.push(sql`${normalizedPoslovnoIme} LIKE ${'%' + normalized + '%'}`);
+        const trimmed = filters.search.trim();
+        // If search is all digits, search by PIB or maticni broj
+        if (/^\d+$/.test(trimmed)) {
+          conditions.push(
+            sql`(${companyDirectory.pib} LIKE ${trimmed + '%'} OR ${companyDirectory.maticniBroj} LIKE ${trimmed + '%'})`
+          );
+        } else {
+          const normalized = normalizeForSearch(trimmed);
+          if (normalized) {
+            // Search normalized column (handles Cyrillic input, diacritics, ASCII-only)
+            conditions.push(sql`${normalizedPoslovnoIme} LIKE ${'%' + normalized + '%'}`);
+          }
         }
       }
       if (filters.sifraDelatnosti) {
@@ -281,6 +289,7 @@ export const companyDirectoryRouter = router({
         db
           .select({
             maticniBroj: companyDirectory.maticniBroj,
+            pib: companyDirectory.pib,
             poslovnoIme: companyDirectory.poslovnoIme,
             pravnaForma: companyDirectory.pravnaForma,
             sifraDelatnosti: companyDirectory.sifraDelatnosti,
@@ -318,6 +327,7 @@ export const companyDirectoryRouter = router({
         .select({
           id: companyDirectory.id,
           maticniBroj: companyDirectory.maticniBroj,
+          pib: companyDirectory.pib,
           poslovnoIme: companyDirectory.poslovnoIme,
           pravnaForma: companyDirectory.pravnaForma,
           sifraDelatnosti: companyDirectory.sifraDelatnosti,
