@@ -69,7 +69,7 @@ export const createCompanySchema = z.object({
     phone: z
         .string()
         .max(50)
-        .regex(/^[0-9\s\-\+\(\)]+$/, 'Неисправан формат телефона')
+        .regex(/^[0-9\s\-+()]+$/, 'Неисправан формат телефона')
         .optional(),
     email: z.string().email('Неисправан формат email адресе').max(255).optional(),
     directorJmbg: z

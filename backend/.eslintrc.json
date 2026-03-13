@@ -1,6 +1,6 @@
 {
   "root": true,
-  "ignorePatterns": ["src/fix-*.ts", "src/extract-*.ts", "src/analyze-*.ts", "src/test-*.ts", "src/process-*.ts"],
+  "ignorePatterns": ["dist", "src/fix-*.ts", "src/extract-*.ts", "src/analyze-*.ts", "src/test-*.ts", "src/process-*.ts", "src/scripts"],
   "env": {
     "es2022": true,
     "node": true

@@ -384,7 +384,7 @@ export const companyDirectoryRouter = router({
       const cwAge = company.cwEnrichedAt
         ? (Date.now() - new Date(company.cwEnrichedAt).getTime()) / (1000 * 60 * 60 * 24)
         : Infinity;
-      if (cwAge > 90 && company.pib) {
+      if (cwAge > 90 || !company.pib) {
         // Fire and forget - don't block the response
         enrichFromCompanyWall(input.maticniBroj).catch((err) =>
           console.warn(`CW enrichment failed for ${input.maticniBroj}:`, err)

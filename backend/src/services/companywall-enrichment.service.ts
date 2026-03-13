@@ -18,6 +18,7 @@ const CW_RATE_LIMIT_MS = 3000;
 let lastRequestTime = 0;
 
 export interface CompanyWallResult {
+  pib?: string;             // PIB (9-digit tax ID)
   prihod?: number;          // Annual revenue (RSD)
   rashod?: number;          // Annual expenses (RSD)
   dobitGubitak?: number;    // Profit/loss (RSD)
@@ -61,9 +62,10 @@ function parseSerbianNumber(text: string): number | undefined {
 }
 
 /**
- * Scrape CompanyWall.rs search results for a company by PIB
+ * Scrape CompanyWall.rs for a company by name, verifying with maticni broj.
+ * CW search by MB returns sponsored results, so we search by name then verify.
  */
-async function scrapeCompanyWall(pib: string): Promise<CompanyWallResult> {
+async function scrapeCompanyWall(companyName: string, maticniBroj: string): Promise<CompanyWallResult> {
   await waitForRateLimit();
 
   const result: CompanyWallResult = {};
@@ -71,8 +73,8 @@ async function scrapeCompanyWall(pib: string): Promise<CompanyWallResult> {
   try {
     const { load } = await import('cheerio');
 
-    // Step 1: Search by PIB
-    const searchUrl = `https://www.companywall.rs/pretraga?query=${pib}`;
+    // Step 1: Search by company name (CW search by MB is unreliable)
+    const searchUrl = `https://www.companywall.rs/pretraga?query=${encodeURIComponent(companyName)}`;
     const searchResponse = await fetch(searchUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -82,46 +84,86 @@ async function scrapeCompanyWall(pib: string): Promise<CompanyWallResult> {
     });
 
     if (!searchResponse.ok) {
-      console.warn(`CompanyWall search failed for PIB ${pib}: HTTP ${searchResponse.status}`);
+      console.warn(`CompanyWall search failed for "${companyName}": HTTP ${searchResponse.status}`);
       return result;
     }
 
     const searchHtml = await searchResponse.text();
     const $search = load(searchHtml);
 
-    // Find company link from search results
-    // CompanyWall search results have links like /firma/{slug}/{id}
-    const companyLink = $search('a[href*="/firma/"]').first().attr('href');
-
-    if (!companyLink) {
-      console.warn(`CompanyWall: No company found for PIB ${pib}`);
-      return result;
-    }
-
-    // Build full URL
-    const companyUrl = companyLink.startsWith('http')
-      ? companyLink
-      : `https://www.companywall.rs${companyLink}`;
-    result.kompanijskiUrl = companyUrl;
-
-    // Step 2: Scrape company page
-    await waitForRateLimit();
-
-    const companyResponse = await fetch(companyUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'sr-RS,sr;q=0.9',
-      },
+    // Get all company links from search results (try up to 3)
+    const companyLinks: string[] = [];
+    $search('a[href*="/firma/"]').each((_, el) => {
+      const href = $search(el).attr('href');
+      if (href) {
+        const url = href.startsWith('http') ? href : `https://www.companywall.rs${href}`;
+        if (!companyLinks.includes(url)) companyLinks.push(url);
+      }
     });
 
-    if (!companyResponse.ok) {
-      console.warn(`CompanyWall company page failed for ${companyUrl}: HTTP ${companyResponse.status}`);
+    if (companyLinks.length === 0) {
+      console.warn(`CompanyWall: No company found for "${companyName}"`);
       return result;
     }
 
-    const companyHtml = await companyResponse.text();
+    // Step 2: Try each result - look for one whose page contains our maticni broj
+    let companyHtml = '';
+    let companyUrl = '';
+
+    for (const link of companyLinks.slice(0, 3)) {
+      await waitForRateLimit();
+
+      const companyResponse = await fetch(link, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': 'text/html,application/xhtml+xml',
+          'Accept-Language': 'sr-RS,sr;q=0.9',
+        },
+      });
+
+      if (!companyResponse.ok) continue;
+
+      const html = await companyResponse.text();
+
+      // Verify: page must contain our maticni broj
+      if (html.includes(maticniBroj)) {
+        companyHtml = html;
+        companyUrl = link;
+        break;
+      }
+    }
+
+    if (!companyHtml) {
+      console.warn(`CompanyWall: MB ${maticniBroj} not found in top results for "${companyName}"`);
+      return result;
+    }
+
+    result.kompanijskiUrl = companyUrl;
     const $ = load(companyHtml);
+
+    // Extract PIB
+    const pibPatterns = [
+      /PIB[:\s]+(\d{9})/i,
+      /Poreski\s+identifikacioni\s+broj[:\s]+(\d{9})/i,
+    ];
+    for (const pattern of pibPatterns) {
+      const match = companyHtml.match(pattern);
+      if (match) {
+        result.pib = match[1];
+        break;
+      }
+    }
+    // Also try structured elements
+    if (!result.pib) {
+      $('td, th, dt, span').each((_, el) => {
+        const text = $(el).text().trim();
+        if (/^PIB$/i.test(text) || /poreski/i.test(text)) {
+          const nextText = $(el).next().text().trim();
+          const m = nextText.match(/(\d{9})/);
+          if (m && !result.pib) result.pib = m[1];
+        }
+      });
+    }
 
     // Extract financial data from the page
     // CompanyWall typically shows financial data in tables or data cards
@@ -217,22 +259,17 @@ export async function enrichFromCompanyWall(maticniBroj: string): Promise<Compan
     return null;
   }
 
-  // We need PIB for CompanyWall search - get it from the full record
+  // Get company name for search
   const [fullRecord] = await db
-    .select()
+    .select({ poslovnoIme: companyDirectory.poslovnoIme })
     .from(companyDirectory)
     .where(eq(companyDirectory.maticniBroj, maticniBroj))
     .limit(1);
 
   if (!fullRecord) return null;
 
-  // CompanyWall searches by PIB or company name
-  // PIB is not directly stored in company_directory - use maticniBroj as search term
-  // (CompanyWall accepts both PIB and matični broj as search queries)
-  const searchTerm = maticniBroj;
-
-  // Scrape CompanyWall
-  const enriched = await scrapeCompanyWall(searchTerm);
+  // Scrape CompanyWall - search by name, verify by MB
+  const enriched = await scrapeCompanyWall(fullRecord.poslovnoIme, maticniBroj);
 
   // Update database with non-null fields
   const updateFields: Record<string, unknown> = {
@@ -240,6 +277,7 @@ export async function enrichFromCompanyWall(maticniBroj: string): Promise<Compan
     updatedAt: new Date(),
   };
 
+  if (enriched.pib) updateFields.pib = enriched.pib;
   if (enriched.prihod !== undefined) updateFields.prihod = enriched.prihod;
   if (enriched.rashod !== undefined) updateFields.rashod = enriched.rashod;
   if (enriched.dobitGubitak !== undefined) updateFields.dobitGubitak = enriched.dobitGubitak;
