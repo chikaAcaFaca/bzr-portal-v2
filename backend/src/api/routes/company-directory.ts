@@ -318,7 +318,8 @@ export const companyDirectoryRouter = router({
     }),
 
   /**
-   * Public profile data (limited fields for SEO pages)
+   * Public profile data for SEO company pages.
+   * Triggers on-demand CompanyWall enrichment if data is stale/missing.
    */
   getPublicProfile: publicProcedure
     .input(z.object({ maticniBroj: z.string().min(1).max(8) }))
@@ -335,8 +336,14 @@ export const companyDirectoryRouter = router({
           sifraOpstine: companyDirectory.sifraOpstine,
           datumOsnivanja: companyDirectory.datumOsnivanja,
           status: companyDirectory.status,
+          // Location
+          adresa: companyDirectory.adresa,
+          postanskiBroj: companyDirectory.postanskiBroj,
           grad: companyDirectory.grad,
+          // People
+          kontaktOsoba: companyDirectory.kontaktOsoba,
           brojZaposlenih: companyDirectory.brojZaposlenih,
+          // Platform
           registrovan: companyDirectory.registrovan,
           pretplataAktivna: companyDirectory.pretplataAktivna,
           bzrAgencijaNaziv: companyDirectory.bzrAgencijaNaziv,
@@ -351,13 +358,13 @@ export const companyDirectoryRouter = router({
           dobitGubitak: companyDirectory.dobitGubitak,
           kapital: companyDirectory.kapital,
           companyWallUrl: companyDirectory.companyWallUrl,
-          // Contact info only if flagged as visible
+          cwEnrichedAt: companyDirectory.cwEnrichedAt,
+          // Contact info (conditionally visible)
           telefonVidljiv: companyDirectory.telefonVidljiv,
           emailVidljiv: companyDirectory.emailVidljiv,
           telefon: companyDirectory.telefon,
           email: companyDirectory.email,
           webSajt: companyDirectory.webSajt,
-          adresa: companyDirectory.adresa,
         })
         .from(companyDirectory)
         .where(eq(companyDirectory.maticniBroj, input.maticniBroj))
@@ -367,11 +374,23 @@ export const companyDirectoryRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Firma nije pronadjena' });
       }
 
+      // Trigger CompanyWall enrichment in background if data is stale/missing
+      const cwAge = company.cwEnrichedAt
+        ? (Date.now() - new Date(company.cwEnrichedAt).getTime()) / (1000 * 60 * 60 * 24)
+        : Infinity;
+      if (cwAge > 90 && company.pib) {
+        // Fire and forget - don't block the response
+        enrichFromCompanyWall(input.maticniBroj).catch((err) =>
+          console.warn(`CW enrichment failed for ${input.maticniBroj}:`, err)
+        );
+      }
+
       // Mask contact info if not flagged as visible
       return {
         ...company,
         telefon: company.telefonVidljiv ? company.telefon : null,
         email: company.emailVidljiv ? company.email : null,
+        cwEnrichedAt: undefined, // don't expose internal timestamp
       };
     }),
 
