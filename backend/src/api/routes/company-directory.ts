@@ -365,6 +365,12 @@ export const companyDirectoryRouter = router({
           telefon: companyDirectory.telefon,
           email: companyDirectory.email,
           webSajt: companyDirectory.webSajt,
+          // Social media links
+          facebookUrl: companyDirectory.facebookUrl,
+          instagramUrl: companyDirectory.instagramUrl,
+          youtubeUrl: companyDirectory.youtubeUrl,
+          tiktokUrl: companyDirectory.tiktokUrl,
+          linkedinUrl: companyDirectory.linkedinUrl,
         })
         .from(companyDirectory)
         .where(eq(companyDirectory.maticniBroj, input.maticniBroj))
@@ -550,6 +556,12 @@ export const companyDirectoryRouter = router({
         telefonVidljiv: z.boolean().optional(),
         emailVidljiv: z.boolean().optional(),
         kontaktFormAktivna: z.boolean().optional(),
+        // Social media links
+        facebookUrl: z.string().max(500).optional(),
+        instagramUrl: z.string().max(500).optional(),
+        youtubeUrl: z.string().max(500).optional(),
+        tiktokUrl: z.string().max(500).optional(),
+        linkedinUrl: z.string().max(500).optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
@@ -579,6 +591,11 @@ export const companyDirectoryRouter = router({
       if (input.telefonVidljiv !== undefined) updateData.telefonVidljiv = input.telefonVidljiv;
       if (input.emailVidljiv !== undefined) updateData.emailVidljiv = input.emailVidljiv;
       if (input.kontaktFormAktivna !== undefined) updateData.kontaktFormAktivna = input.kontaktFormAktivna;
+      if (input.facebookUrl !== undefined) updateData.facebookUrl = input.facebookUrl;
+      if (input.instagramUrl !== undefined) updateData.instagramUrl = input.instagramUrl;
+      if (input.youtubeUrl !== undefined) updateData.youtubeUrl = input.youtubeUrl;
+      if (input.tiktokUrl !== undefined) updateData.tiktokUrl = input.tiktokUrl;
+      if (input.linkedinUrl !== undefined) updateData.linkedinUrl = input.linkedinUrl;
 
       const [updated] = await db
         .update(companyDirectory)

@@ -54,3 +54,6 @@ export * from './injury-reports';
 export * from './esaw-classifications';
 export * from './client-documents';
 export * from './newsletter';
+
+// Platform Settings
+export * from './site-settings';

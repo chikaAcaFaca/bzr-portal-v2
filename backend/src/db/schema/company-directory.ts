@@ -56,6 +56,13 @@ export const companyDirectory = pgTable('company_directory', {
   logoUrl: varchar('logo_url', { length: 500 }),
   kontaktFormAktivna: boolean('kontakt_form_aktivna').default(false),
 
+  // Social media links (set by company when they claim their profile)
+  facebookUrl: varchar('facebook_url', { length: 500 }),
+  instagramUrl: varchar('instagram_url', { length: 500 }),
+  youtubeUrl: varchar('youtube_url', { length: 500 }),
+  tiktokUrl: varchar('tiktok_url', { length: 500 }),
+  linkedinUrl: varchar('linkedin_url', { length: 500 }),
+
   // Claim & Invite system
   claimedAt: timestamp('claimed_at'),
   claimedByCompanyId: integer('claimed_by_company_id'),

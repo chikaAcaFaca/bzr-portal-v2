@@ -21,6 +21,7 @@ import { documentWorkflowRouter } from '../routes/document-workflow';
 import { injuryReportsRouter } from '../routes/injury-reports';
 import { newsletterRouter } from '../routes/newsletter';
 import { billingRouter } from '../routes/billing';
+import { siteSettingsRouter } from '../routes/site-settings';
 
 // Re-export builder functions for convenience
 export { router, publicProcedure, protectedProcedure, companyOwnerProcedure } from './builder';
@@ -61,6 +62,9 @@ export const appRouter = router({
 
   // Billing & Invoices
   billing: billingRouter,
+
+  // Platform Settings
+  siteSettings: siteSettingsRouter,
 });
 
 export type AppRouter = typeof appRouter;
