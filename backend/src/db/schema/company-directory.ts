@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, text, timestamp, boolean, integer, index } from 'drizzle-orm/pg-core';
+import { pgTable, serial, varchar, text, timestamp, boolean, integer, index, jsonb } from 'drizzle-orm/pg-core';
 
 /**
  * Company Directory Table
@@ -55,6 +55,9 @@ export const companyDirectory = pgTable('company_directory', {
   usluge: text('usluge'),
   logoUrl: varchar('logo_url', { length: 500 }),
   kontaktFormAktivna: boolean('kontakt_form_aktivna').default(false),
+
+  // Working hours (set by company when they claim their profile)
+  radnoVreme: jsonb('radno_vreme'),  // { ponedeljak: "08:00-16:00", ... }
 
   // Social media links (set by company when they claim their profile)
   facebookUrl: varchar('facebook_url', { length: 500 }),

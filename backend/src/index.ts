@@ -231,6 +231,163 @@ app.get('/api/nurture/unsubscribe', async (c) => {
   }
 });
 
+// Compliance Tracker cron endpoint (called by Vercel cron or manual trigger)
+app.get('/api/cron/compliance', async (c) => {
+  // Simple auth: check for cron secret or admin token
+  const authHeader = c.req.header('Authorization');
+  const cronSecret = process.env.CRON_SECRET || 'bzr-compliance-2026';
+  if (authHeader !== `Bearer ${cronSecret}`) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  try {
+    const { runDailyComplianceCheck } = await import('./services/compliance-tracker.agent');
+    const result = await runDailyComplianceCheck();
+    return c.json({ status: 'ok', ...result });
+  } catch (error) {
+    console.error('[Cron] Compliance check failed:', error);
+    return c.json({ status: 'error', error: String(error) }, 500);
+  }
+});
+console.log('✅ Compliance cron endpoint enabled');
+
+// Regulatory Monitor cron endpoint (weekly check for new laws/regulations)
+app.get('/api/cron/regulatory', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  const cronSecret = process.env.CRON_SECRET || 'bzr-compliance-2026';
+  if (authHeader !== `Bearer ${cronSecret}`) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  try {
+    const { runRegulatoryCheck } = await import('./services/regulatory-monitor.agent');
+    const result = await runRegulatoryCheck();
+    return c.json({ status: 'ok', ...result });
+  } catch (error) {
+    console.error('[Cron] Regulatory check failed:', error);
+    return c.json({ status: 'error', error: String(error) }, 500);
+  }
+});
+
+// Regulatory status endpoint (for admin panel)
+app.get('/api/regulatory/status', async (c) => {
+  try {
+    const { getRegulatoryStatus } = await import('./services/regulatory-monitor.agent');
+    const status = await getRegulatoryStatus();
+    return c.json(status);
+  } catch (error) {
+    return c.json({ error: String(error) }, 500);
+  }
+});
+console.log('✅ Regulatory monitor endpoints enabled');
+
+// Content pipeline cron endpoint (daily content generation)
+app.get('/api/cron/content', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  const cronSecret = process.env.CRON_SECRET || 'bzr-compliance-2026';
+  if (authHeader !== `Bearer ${cronSecret}`) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  try {
+    const { runContentPipeline } = await import('./services/content-outreach.agent');
+    const result = await runContentPipeline();
+    return c.json({ status: 'ok', ...result });
+  } catch (error) {
+    console.error('[Cron] Content pipeline failed:', error);
+    return c.json({ status: 'error', error: String(error) }, 500);
+  }
+});
+
+// Content queue endpoint (for admin review)
+app.get('/api/content/queue', async (c) => {
+  try {
+    const { getContentQueue } = await import('./services/content-outreach.agent');
+    return c.json(getContentQueue());
+  } catch (error) {
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// Get thumbnail prompt for a content piece
+app.get('/api/content/:id/thumbnail-prompt', async (c) => {
+  try {
+    const { getThumbnailPrompt } = await import('./services/content-outreach.agent');
+    const prompt = getThumbnailPrompt(c.req.param('id'));
+    if (!prompt) return c.json({ error: 'Not found' }, 404);
+    return c.json({ prompt });
+  } catch (error) {
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// Mark content as published
+app.post('/api/content/:id/publish', async (c) => {
+  try {
+    const { markPublished } = await import('./services/content-outreach.agent');
+    const success = markPublished(c.req.param('id'));
+    return c.json({ success });
+  } catch (error) {
+    return c.json({ error: String(error) }, 500);
+  }
+});
+// Generate thumbnail for content piece
+app.post('/api/content/:id/generate-thumbnail', async (c) => {
+  try {
+    const { generateThumbnailForContent } = await import('./services/thumbnail.service');
+    const result = await generateThumbnailForContent(c.req.param('id'));
+    return c.json(result);
+  } catch (error) {
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Generate all pending thumbnails (batch)
+app.post('/api/content/generate-thumbnails', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  const cronSecret = process.env.CRON_SECRET || 'bzr-compliance-2026';
+  if (authHeader !== `Bearer ${cronSecret}`) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  try {
+    const { generatePendingThumbnails } = await import('./services/thumbnail.service');
+    const result = await generatePendingThumbnails();
+    return c.json({ status: 'ok', ...result });
+  } catch (error) {
+    return c.json({ status: 'error', error: String(error) }, 500);
+  }
+});
+
+// Custom thumbnail generation (ad-hoc)
+app.post('/api/thumbnail/generate', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { generateThumbnail } = await import('./services/thumbnail.service');
+    const result = await generateThumbnail({
+      prompt: body.prompt,
+      style: body.style || 'youtube_thumbnail',
+      model: body.model || 'quality',
+      title: body.title,
+    });
+    return c.json(result);
+  } catch (error) {
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+console.log('✅ Content pipeline endpoints enabled');
+
+// Compliance dashboard endpoint (for admin panel)
+app.get('/api/compliance/dashboard', async (c) => {
+  try {
+    const { getComplianceDashboard } = await import('./services/compliance-tracker.agent');
+    const dashboard = await getComplianceDashboard();
+    return c.json(dashboard);
+  } catch (error) {
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
 // Static route registration (avoids Hono "matcher already built" error)
 app.route('/api/auth', authRoutes);
 console.log('✅ Auth routes enabled');

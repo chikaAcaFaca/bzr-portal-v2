@@ -367,6 +367,8 @@ export const companyDirectoryRouter = router({
           telefon: companyDirectory.telefon,
           email: companyDirectory.email,
           webSajt: companyDirectory.webSajt,
+          // Working hours
+          radnoVreme: companyDirectory.radnoVreme,
           // Social media links
           facebookUrl: companyDirectory.facebookUrl,
           instagramUrl: companyDirectory.instagramUrl,
@@ -587,6 +589,8 @@ export const companyDirectoryRouter = router({
         telefonVidljiv: z.boolean().optional(),
         emailVidljiv: z.boolean().optional(),
         kontaktFormAktivna: z.boolean().optional(),
+        // Working hours
+        radnoVreme: z.record(z.string(), z.string()).optional(),
         // Social media links
         facebookUrl: z.string().max(500).optional(),
         instagramUrl: z.string().max(500).optional(),
@@ -622,6 +626,7 @@ export const companyDirectoryRouter = router({
       if (input.telefonVidljiv !== undefined) updateData.telefonVidljiv = input.telefonVidljiv;
       if (input.emailVidljiv !== undefined) updateData.emailVidljiv = input.emailVidljiv;
       if (input.kontaktFormAktivna !== undefined) updateData.kontaktFormAktivna = input.kontaktFormAktivna;
+      if (input.radnoVreme !== undefined) updateData.radnoVreme = input.radnoVreme;
       if (input.facebookUrl !== undefined) updateData.facebookUrl = input.facebookUrl;
       if (input.instagramUrl !== undefined) updateData.instagramUrl = input.instagramUrl;
       if (input.youtubeUrl !== undefined) updateData.youtubeUrl = input.youtubeUrl;

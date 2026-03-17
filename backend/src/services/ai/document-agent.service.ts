@@ -2,15 +2,133 @@
  * Document Creation Agent Service
  *
  * Guides users through conversational document creation:
- * - Asks clarifying questions
+ * - Asks clarifying questions with dynamic, engaging responses
  * - Validates data (PIB, JMBG) during conversation
  * - Collects company info, work positions, hazards
+ * - Auto-suggests hazards based on job descriptions
  * - Generates document when all data is collected
  *
- * Uses Claude 3.5 Sonnet for document generation quality
+ * Uses Claude Sonnet 4.6 for document generation quality
  */
 
 import { validatePIB, validateJMBG } from '../../lib/validators';
+import { getAnthropic, MODELS } from '../../lib/ai/providers';
+import * as fs from 'fs';
+import * as path from 'path';
+
+// =============================================================================
+// Dynamic Response Generation
+// =============================================================================
+
+/**
+ * Generate a dynamic, engaging response using Claude
+ * Falls back to static message if LLM call fails
+ */
+async function generateDynamicResponse(
+  context: {
+    step: string;
+    justCollected?: string;
+    justCollectedValue?: string;
+    nextField: string;
+    companyData?: Record<string, string | undefined>;
+    positionsCount?: number;
+    hazardsCount?: number;
+    progressPercent?: number;
+  },
+  fallbackMessage: string,
+  fallbackQuestion?: string,
+): Promise<{ message: string; question?: string }> {
+  try {
+    const anthropic = getAnthropic();
+    const prompt = `Ti si Botislav, AI savetnik za BZR. Upravo si u razgovoru sa korisnikom koji kreira Akt o proceni rizika.
+
+KONTEKST:
+- Korak: ${context.step}
+${context.justCollected ? `- Korisnik je upravo uneo: ${context.justCollected} = "${context.justCollectedValue}"` : ''}
+${context.companyData ? `- Podaci firme do sada: ${JSON.stringify(context.companyData)}` : ''}
+${context.positionsCount ? `- Broj radnih mesta: ${context.positionsCount}` : ''}
+${context.hazardsCount ? `- Broj opasnosti: ${context.hazardsCount}` : ''}
+${context.progressPercent ? `- Napredak: ${context.progressPercent}%` : ''}
+- Sledece polje koje treba prikupiti: ${context.nextField}
+
+ZADATAK:
+Napiši JEDAN kratak, angažovan odgovor (max 2 rečenice) koji:
+1. Potvrdi šta je korisnik upravo uneo (sa relevantnim komentarom, NE generičko "Odlično!")
+2. Prirodno pređi na sledeće pitanje
+
+Budi SPECIFIČAN - ako je korisnik uneo šifru delatnosti, komentiši šta ta delatnost znači za BZR.
+Ako je uneo broj zaposlenih, komentiši kako to utiče na cenu/kompleksnost.
+
+Format odgovora (JSON):
+{"message": "tvoj komentar", "question": "sledece pitanje"}
+
+Piši na srpskom (ćirilica).`;
+
+    const response = await anthropic.messages.create({
+      model: MODELS.claude,
+      max_tokens: 256,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const text = response.content[0].type === 'text' ? response.content[0].text : '';
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return { message: parsed.message, question: parsed.question };
+    }
+  } catch {
+    // Fall back to static response
+  }
+  return { message: fallbackMessage, question: fallbackQuestion };
+}
+
+/**
+ * Load hazard suggestions from knowledge base for a given job description
+ */
+function suggestHazardsFromKnowledgeBase(
+  activityCode?: string,
+  jobDescription?: string,
+): Array<{ hazardName: string; category: string; typical: boolean }> {
+  const suggestions: Array<{ hazardName: string; category: string; typical: boolean }> = [];
+
+  try {
+    const kbPath = path.resolve(__dirname, '../../../../knowledge-base/opasnosti');
+    const categories = ['MEH-mehanicke', 'ELE-elektricne', 'HEM-hemijske', 'ERG-ergonomske', 'FIZ-fizicke', 'PSI-psihosocijalne'];
+
+    for (const cat of categories) {
+      const filePath = path.join(kbPath, `${cat}.json`);
+      if (!fs.existsSync(filePath)) continue;
+
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      if (!Array.isArray(data)) continue;
+
+      for (const hazard of data) {
+        const name = hazard.naziv || hazard.name || '';
+        const keywords = hazard.kljucne_reci || hazard.keywords || [];
+        const desc = (jobDescription || '').toLowerCase();
+
+        // Match based on keywords or common patterns
+        const isRelevant = keywords.some((kw: string) => desc.includes(kw.toLowerCase())) ||
+          (cat.includes('ERG') && desc.match(/kancelarij|računar|sedec|admin|računovodj/i)) ||
+          (cat.includes('ELE') && desc.match(/elektr|instalacij|struj|mašin/i)) ||
+          (cat.includes('MEH') && desc.match(/mašin|alat|vozil|gradjevina|visina|teško/i)) ||
+          (cat.includes('PSI') && desc.match(/stres|rok|kontakt|javnost|noćn/i));
+
+        if (isRelevant && name) {
+          suggestions.push({
+            hazardName: name,
+            category: cat.split('-')[0],
+            typical: true,
+          });
+        }
+      }
+    }
+  } catch {
+    // Knowledge base not available, return empty
+  }
+
+  return suggestions.slice(0, 8); // Max 8 suggestions
+}
 
 // =============================================================================
 // Types
@@ -224,8 +342,23 @@ function getNextQuestion(state: DocumentConversationState): DocumentAgentRespons
       };
     }
 
-    // Position basic info complete, ask about hazards
+    // Position basic info complete, suggest hazards from knowledge base
     if (!currentPosition.hazards || currentPosition.hazards.length === 0) {
+      const suggestions = suggestHazardsFromKnowledgeBase(
+        state.collectedData.company?.activityCode,
+        currentPosition.workDescription || currentPosition.positionName,
+      );
+
+      if (suggestions.length > 0) {
+        const suggestionList = suggestions.map((s, i) => `${i + 1}. ${s.hazardName} (${s.category})`).join('\n');
+        return {
+          message: `Супер! Радно место је дефинисано. ✅\n\nНа основу описа посла, препоручујем следеће опасности:\n\n${suggestionList}\n\nМожете потврдити све, изабрати неке (нпр. "1, 3, 5"), или додати своје.`,
+          question: 'Које опасности прихватате? (све / бројеви / или опишите своје)',
+          state,
+          isComplete: false,
+        };
+      }
+
       return {
         message: 'Супер! Радно место је дефинисано. ✅\n\nСада треба да идентификујемо опасности и штетности.',
         question: 'Која је прва опасност на овом радном месту? (нпр. "Дуготрајан седећи положај", "Рад на рачунару")',
@@ -363,6 +496,7 @@ function validateData(field: string, value: string): { valid: boolean; error?: s
 
 /**
  * Process user message and update document creation state
+ * Enhanced with dynamic LLM responses and knowledge base integration
  */
 export async function processDocumentConversation(
   userMessage: string,
@@ -441,8 +575,43 @@ export async function processDocumentConversation(
         else if (expectedField === 'activityDescription') company.activityDescription = extracted.value;
         else if (expectedField === 'employeeCount') company.employeeCount = extracted.value;
 
-        // Get next question
-        return getNextQuestion(state)!;
+        // Get next static question, then enhance with dynamic response
+        const staticNext = getNextQuestion(state)!;
+
+        // Determine next expected field for dynamic context
+        let nextExpected = '';
+        if (!company.pib) nextExpected = 'PIB';
+        else if (!company.address) nextExpected = 'adresa';
+        else if (!company.city) nextExpected = 'grad';
+        else if (!company.director) nextExpected = 'direktor';
+        else if (!company.directorJmbg) nextExpected = 'JMBG direktora';
+        else if (!company.bzrResponsiblePerson) nextExpected = 'lice za BZR';
+        else if (!company.bzrResponsibleJmbg) nextExpected = 'JMBG lica za BZR';
+        else if (!company.activityCode) nextExpected = 'šifra delatnosti';
+        else if (!company.activityDescription) nextExpected = 'opis delatnosti';
+        else if (!company.employeeCount) nextExpected = 'broj zaposlenih';
+        else nextExpected = 'radna mesta';
+
+        const progress = getConversationProgress(state);
+        const dynamic = await generateDynamicResponse(
+          {
+            step: 'company_info',
+            justCollected: expectedField,
+            justCollectedValue: extracted.value,
+            nextField: nextExpected,
+            companyData: company,
+            progressPercent: progress.percentComplete,
+          },
+          staticNext.message,
+          staticNext.question,
+        );
+
+        return {
+          message: dynamic.message,
+          question: dynamic.question || staticNext.question,
+          state: staticNext.state,
+          isComplete: staticNext.isComplete,
+        };
       } else {
         return {
           message: 'Нисам сигуран да сам разумео. Молим вас да одговорите јасније.',
