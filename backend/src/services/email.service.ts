@@ -460,7 +460,7 @@ export async function sendInvoiceEmail(invoiceId: number): Promise<string> {
       <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
 
       <p style="color: #999; font-size: 12px;">
-        NKNet Consulting DOO, Karadjordeva 18a, 26101 Pancevo<br>
+        NKNet Consulting DOO, Svetozara Miletica 104/18, 26000 Pancevo<br>
         PIB: 115190346, MB: 22125338
       </p>
     </body>

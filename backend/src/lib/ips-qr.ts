@@ -27,11 +27,11 @@ export interface IpsQrParams {
  */
 export const NKNET_PAYMENT_INFO = {
   racunPrimaoca: '265-6510310002605-07',
-  nazivPrimaoca: 'NKNet Consulting DOO, Karadjordeva 18a, 26101 Pancevo',
+  nazivPrimaoca: 'NKNet Consulting DOO, Svetozara Miletica 104/18, 26000 Pancevo',
   sifraPlacanja: '289',
   pib: '115190346',
   mb: '22125338',
-  adresa: 'Karadjordeva 18a, 26101 Pancevo',
+  adresa: 'Svetozara Miletica 104/18, 26000 Pancevo',
   fullName: 'NKNet Consulting DOO',
   banka: 'Raiffeisen banka',
 };
