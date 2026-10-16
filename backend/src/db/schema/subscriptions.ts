@@ -46,10 +46,11 @@ export type NewSubscription = typeof subscriptions.$inferInsert;
  */
 export const PRICING_TIERS = {
   agency: { maxEmployees: 0, monthlyRsd: 0, annualRsd: 0, label: 'Agencija (besplatno)' },
-  tier_1: { maxEmployees: 1, monthlyRsd: 990, annualRsd: 9900, label: '1 zaposlen' },
-  tier_5: { maxEmployees: 5, monthlyRsd: 1990, annualRsd: 19900, label: 'Do 5 zaposlenih' },
-  tier_10: { maxEmployees: 10, monthlyRsd: 3990, annualRsd: 39900, label: 'Do 10 zaposlenih' },
-  tier_20: { maxEmployees: 20, monthlyRsd: 6990, annualRsd: 69900, label: 'Do 20 zaposlenih' },
+  // Do 20 zaposlenih: jedinstvena cena 990 RSD mesecno ili 8.990 RSD godisnje (od 16.10.2026).
+  tier_1: { maxEmployees: 1, monthlyRsd: 990, annualRsd: 8990, label: 'Do 20 zaposlenih' },
+  tier_5: { maxEmployees: 5, monthlyRsd: 990, annualRsd: 8990, label: 'Do 20 zaposlenih' },
+  tier_10: { maxEmployees: 10, monthlyRsd: 990, annualRsd: 8990, label: 'Do 20 zaposlenih' },
+  tier_20: { maxEmployees: 20, monthlyRsd: 990, annualRsd: 8990, label: 'Do 20 zaposlenih' },
   tier_50: { maxEmployees: 50, monthlyRsd: 9990, annualRsd: 99900, label: 'Do 50 zaposlenih' },
   tier_50plus: { maxEmployees: Infinity, monthlyRsd: 14990, annualRsd: 149900, label: '51+ zaposlenih' },
 } as const;
